@@ -19,6 +19,7 @@ from app.schemas.common import APIResponse
 from app.schemas.event import EventResponse
 from app.services.graph_service import graph_service
 from app.services.simulation_service import simulation_service
+from app.services.rag_service import rag_service
 
 logger = logging.getLogger(__name__)
 
@@ -191,3 +192,43 @@ async def get_event_simulation(
     except Exception as exc:
         logger.exception("Failed to perform simulation: %s: %s", type(exc).__name__, str(exc))
         raise HTTPException(status_code=500, detail="Simulation failed") from exc
+
+
+@router.get(
+    "/events/{event_id}/decision",
+    response_model=APIResponse,
+    summary="Generate Actionable Decision Intelligence",
+    description="Uses RAG and generative AI to synthesize strategic disruption responses, timelines, and narratives."
+)
+async def get_event_decision_intelligence(
+    event_id: str,
+    db: AsyncSession = Depends(get_db)
+) -> APIResponse:
+    try:
+        _validate_event_id(event_id)
+        query = select(Event).where(Event.id == event_id)
+        result = await db.execute(query)
+        event = result.scalar_one_or_none()
+        
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+            
+        decision_data = await rag_service.generate_decision_intelligence(
+            event_type=event.event_type,
+            location=event.location or "Unknown Context",
+            severity=event.severity,
+            db=db
+        )
+        
+        return APIResponse(
+            status="success",
+            data={
+                "event_id": event.id,
+                "intelligence": decision_data
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to generate decision intelligence: %s", str(exc))
+        raise HTTPException(status_code=500, detail="Decision intelligence generation failed") from exc

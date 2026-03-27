@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     NEWS_API_KEY: str
     NEWS_API_BASE_URL: str = "https://newsapi.org/v2"
     GEMINI_MODEL: str = "gemini-2.0-flash"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
     # Graph Database
     NEO4J_URI: str = "bolt://localhost:7687"

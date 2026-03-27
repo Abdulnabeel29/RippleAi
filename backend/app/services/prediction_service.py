@@ -8,11 +8,12 @@ based on statistically analyzing historical disruption events.
 import logging
 from typing import List
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datetime import datetime, timedelta
 from app.models.event import Event
+from app.models.prediction import Prediction
 from app.schemas.prediction import PredictionItem
 from app.services.rag_service import rag_service
 
@@ -40,16 +41,14 @@ class PredictionService:
     Service for calculating statistical future disruption risks.
     """
 
-    async def generate_predictions(self, db: AsyncSession) -> List[PredictionItem]:
+    async def update_predictions(self, db: AsyncSession) -> None:
         """
         Scans historical events from the last 30 days, applies time-decay weighting,
-        and extracts predictive indicators with normalized probabilities.
+        extracts predictive indicators with normalized probabilities, and saves them
+        to the database.
 
         Args:
             db: Async database session.
-
-        Returns:
-            List of standardized PredictionItem objects.
         """
         try:
             # 30-day time window
@@ -61,7 +60,7 @@ class PredictionService:
             events = result.scalars().all()
 
             if not events:
-                return []
+                return
 
             # Aggregate weights by (event_type, location)
             # weight = 1 / (1 + days_since_event)
@@ -89,8 +88,9 @@ class PredictionService:
                 topology_weights[key]["weight_sum"] += weight
                 total_global_weight += weight
 
-            predictions: List[PredictionItem] = []
-            
+            # Clear old predictions
+            await db.execute(delete(Prediction))
+
             for key, data in topology_weights.items():
                 # Normalized Probability across all active predictions
                 probability = data["weight_sum"] / total_global_weight if total_global_weight > 0 else 0.0
@@ -116,23 +116,43 @@ class PredictionService:
                 }
                 explanation = await rag_service.generate_explanation(prediction_dict, db)
 
-                predictions.append(
-                    PredictionItem(
-                        event_type=data["event_type"],
-                        location=data["location"],
-                        probability=round(probability, 3),
-                        expected_delay_days=expected_delay_days,
-                        risk_level=risk_level,
-                        explanation=explanation
-                    )
-                )
-
-            # Sort by highest probability first
-            predictions.sort(key=lambda x: x.probability, reverse=True)
-            return predictions
+                db.add(Prediction(
+                    event_type=data["event_type"],
+                    location=data["location"],
+                    probability=round(probability, 3),
+                    expected_delay_days=expected_delay_days,
+                    risk_level=risk_level,
+                    explanation=explanation
+                ))
+            
+            await db.commit()
 
         except Exception as e:
-            logger.error("Failed to generate time-aware predictions: %s", str(e))
+            logger.error("Failed to update predictions: %s", str(e))
+            await db.rollback()
+
+    async def get_latest_predictions(self, db: AsyncSession) -> List[PredictionItem]:
+        """
+        Fetches the latest cached predictions from the database.
+        """
+        try:
+            query = select(Prediction).order_by(Prediction.probability.desc())
+            result = await db.execute(query)
+            db_predictions = result.scalars().all()
+            
+            return [
+                PredictionItem(
+                    event_type=p.event_type,
+                    location=p.location,
+                    probability=p.probability,
+                    expected_delay_days=p.expected_delay_days,
+                    risk_level=p.risk_level,
+                    explanation=p.explanation
+                )
+                for p in db_predictions
+            ]
+        except Exception as e:
+            logger.error("Failed to retrieve predictions: %s", str(e))
             return []
 
 

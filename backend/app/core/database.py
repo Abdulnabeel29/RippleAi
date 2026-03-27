@@ -67,6 +67,7 @@ async def create_tables() -> None:
     from app.models.base import Base  # noqa: E402 — deferred to avoid circular imports
     from app.models.news_article import NewsArticle  # noqa: F401 — register model
     from app.models.event import Event  # noqa: F401 — register model
+    from app.models.prediction import Prediction  # noqa: F401 — register model
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

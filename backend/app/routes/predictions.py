@@ -18,11 +18,11 @@ router = APIRouter(tags=["Predictive Intelligence"])
     "/predictions",
     response_model=PredictionResponse,
     summary="Get future disruption predictions",
-    description="Uses historical statistical data to predict probability of future supply chain disruptions."
+    description="Fetches the latest statistically predicted future supply chain disruptions."
 )
 async def get_predictions(db: AsyncSession = Depends(get_db)) -> PredictionResponse:
     """
-    Executes the statistical predictive engine and maps historical frequency into probabilities.
+    Retrieves the prediction items pre-calculated by the background scheduler.
     """
-    results = await prediction_service.generate_predictions(db)
+    results = await prediction_service.get_latest_predictions(db)
     return PredictionResponse(predictions=results)

@@ -46,8 +46,8 @@ class GraphService:
                 await self._bootstrap_mock_graph()
                 logger.info("Connected to Neo4j successfully.")
             except Exception as exc:
-                logger.exception("Failed to connect to Neo4j: %s", str(exc))
-                raise GraphServiceError("Failed to connect to Neo4j") from exc
+                logger.warning("Failed to connect to Neo4j (Graph Simulation will be offline): %s", str(exc))
+                self.driver = None
 
     async def close(self) -> None:
         """Closes the Neo4j driver connection pool."""
@@ -161,8 +161,9 @@ class GraphService:
             event_id: The UUID/str of the event to query.
 
         Returns:
-            dict: Containing lists of impacted industries, companies, and 
-                  downstream dependencies.
+            dict: Containing lists of impacted industries, companies, and
+                  downstream dependencies. Returns empty lists if Neo4j is
+                  offline or the event has no graph node yet.
         """
         result_data: dict[str, list[str]] = {
             "industries": [],
@@ -170,46 +171,52 @@ class GraphService:
             "downstream_companies": [],
         }
 
+        if self.driver is None:
+            logger.warning(
+                "Neo4j driver unavailable — returning empty impact for event '%s'.", event_id
+            )
+            return result_data
+
         query = """
         MATCH (e:Event {id: $event_id})-[:AFFECTS]->(i:Industry)
         OPTIONAL MATCH (c:Company)-[:BELONGS_TO]->(i)
         OPTIONAL MATCH (c)-[:SUPPLIES_TO]->(downstream:Company)
-        RETURN i.name AS industry, 
-               collect(DISTINCT c.name) AS companies, 
+        RETURN i.name AS industry,
+               collect(DISTINCT c.name) AS companies,
                collect(DISTINCT downstream.name) AS downstream_companies
         """
         try:
-            if self.driver is not None:
-                async with self.driver.session() as session:
-                    result = await session.run(query, event_id=event_id)
-                    records = await result.data()
+            async with self.driver.session() as session:
+                result = await session.run(query, event_id=event_id)
+                records = await result.data()
 
-                    for record in records:
-                        if record.get("industry"):
-                            result_data["industries"].append(record["industry"])
-                        if record.get("companies"):
-                            result_data["companies"].extend(record["companies"])
-                        if record.get("downstream_companies"):
-                            result_data["downstream_companies"].extend(
-                                record["downstream_companies"]
-                            )
+                for record in records:
+                    if record.get("industry"):
+                        result_data["industries"].append(record["industry"])
+                    if record.get("companies"):
+                        result_data["companies"].extend(record["companies"])
+                    if record.get("downstream_companies"):
+                        result_data["downstream_companies"].extend(
+                            record["downstream_companies"]
+                        )
 
-            # Deduplicate the results
             result_data["industries"] = list(set(result_data["industries"]))
             result_data["companies"] = list(set(result_data["companies"]))
             result_data["downstream_companies"] = list(
                 set(result_data["downstream_companies"])
             )
+
             if not result_data["industries"]:
-                raise GraphServiceError(
-                    f"No affected industries found for event_id={event_id}"
+                logger.info(
+                    "No graph node found for event_id='%s' — impact is empty.", event_id
                 )
 
         except Exception as e:
-            logger.exception("Failed to fetch affected entities: %s", str(e))
-            raise GraphServiceError("Failed to fetch affected entities") from e
+            logger.warning("Failed to fetch affected entities for '%s': %s", event_id, str(e))
+            return result_data
 
         return result_data
+
 
 
 # Singleton instance

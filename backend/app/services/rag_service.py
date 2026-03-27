@@ -173,8 +173,10 @@ class RAGService:
             context_text = "\n\n".join(context_docs) if context_docs else "No recent related news articles found."
 
             # Step 2: Prompt LLM
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            from app.core.config import get_settings
+            local_settings = get_settings()
+            genai.configure(api_key=local_settings.GEMINI_API_KEY)
+            model = genai.GenerativeModel(local_settings.GEMINI_MODEL)
             
             prompt = f"""
             Explain why this disruption is likely:
@@ -206,6 +208,93 @@ class RAGService:
         except Exception as e:
             logger.error("Explanation generation failed: %s", str(e))
             return self._build_rule_based_explanation(prediction, [])
+
+    async def generate_decision_intelligence(self, event_type: str, location: str, severity: str, db: AsyncSession) -> Dict[str, Any]:
+        """
+        Generates structured Decision Intelligence including narrative, timelines, 
+        and action recommendations using Gemini JSON mode based on RAG context.
+        """
+        try:
+            # Step 1: Retrieve Context
+            query = f"{event_type} disruption in {location}"
+            context_docs = await self.retrieve_context(query, db, limit=5)
+            context_text = "\n\n".join(context_docs) if context_docs else "No specific recent news articles found for this exact regional event."
+
+            # Step 2: Prompt LLM requesting structured JSON
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            
+            prompt = f"""
+            You are a Decision Intelligence AI for Global Supply Chain Managers.
+            Analyze the following disruption:
+            
+            Event Details:
+            - Type: {event_type}
+            - Location: {location}
+            - Severity: {severity}
+            
+            Context (Recent News & Historical Docs):
+            {context_text}
+            
+            Return a strictly formatted JSON object with exactly these keys:
+            {{
+                "narrative_explanation": "<Human-readable story explaining how this specific disruption spreads step-by-step>",
+                "impact_analysis": {{
+                    "affected_industries": ["<industry1>", "<industry2>"],
+                    "estimated_delay_timeline": "<summary like '2-4 weeks' or 'Unknown'>",
+                    "severity_explanation": "<why is this severity level assigned>"
+                }},
+                "time_based_impact": {{
+                    "immediate": "<impact in 0-3 days>",
+                    "short_term": "<impact in 3-7 days>",
+                    "medium_term": "<impact in 7-14 days>"
+                }},
+                "action_recommendations": [
+                    {{
+                        "strategy": "<High level tactic, e.g. 'Diversify Transport'>",
+                        "operational_suggestion": "<Concrete step to execute right now>"
+                    }},
+                    {{
+                        "strategy": "<Second tactic>",
+                        "operational_suggestion": "<Concrete step>"
+                    }}
+                ]
+            }}
+            """
+
+            # Enforce JSON output globally on this specific generation call
+            response = await model.generate_content_async(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    response_mime_type="application/json"
+                )
+            )
+            
+            clean_text = (response.text or "").strip()
+            return json.loads(clean_text)
+
+        except Exception as e:
+            logger.error("Failed to generate robust decision intelligence: %s", str(e))
+            # Safe Fallback payload
+            return {
+                "narrative_explanation": f"A recent {event_type} in {location} has been flagged for analysis. Expected wide-spread supply line destabilization.",
+                "impact_analysis": {
+                    "affected_industries": ["General Logistics"],
+                    "estimated_delay_timeline": "Unknown",
+                    "severity_explanation": "Insufficient context to assign severity reasoning."
+                },
+                "time_based_impact": {
+                    "immediate": "Potential transport standstill at localized hub.",
+                    "short_term": "Backlogs beginning to formulate across regional boundaries.",
+                    "medium_term": "Inventory depletion if alternative sourcing is not secured."
+                },
+                "action_recommendations": [
+                    {
+                        "strategy": "Monitor Closely",
+                        "operational_suggestion": f"Increase visibility on shipments routing through {location}."
+                    }
+                ]
+            }
 
 # Singleton instance
 rag_service = RAGService()

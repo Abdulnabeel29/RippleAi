@@ -19,6 +19,7 @@ from app.core.database import create_tables
 from app.core.logging import setup_logging
 from app.routes import events, health, ingestion, predictions
 from app.services.graph_service import graph_service
+from app.services.scheduler_service import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting Global Supply Chain Intelligence Engine...")
     await create_tables()
     await graph_service.connect()
+    start_scheduler()
     logger.info("Application startup complete.")
     yield
     # ── Shutdown ────────────────────────────────────────────
     logger.info("Application shutting down.")
+    stop_scheduler()
     await graph_service.close()
 
 
