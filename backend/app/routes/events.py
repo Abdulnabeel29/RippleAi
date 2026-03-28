@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.event import Event
 from app.schemas.common import APIResponse
-from app.schemas.event import EventResponse
+from app.schemas.event import EventResponse, SimulationEnrichmentRequest
 from app.services.graph_service import graph_service
 from app.services.simulation_service import simulation_service
 from app.services.rag_service import rag_service
@@ -178,7 +178,13 @@ async def get_event_simulation(
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
             
-        simulated_impacts = await simulation_service.simulate_impact(event_id)
+        simulated_impacts = await simulation_service.simulate_impact(
+            event_id=event.id,
+            event_type=event.event_type,
+            location=event.location,
+            industry=event.industry,
+            event_summary=event.summary
+        )
         
         return APIResponse(
             status="success",
@@ -217,6 +223,7 @@ async def get_event_decision_intelligence(
             event_type=event.event_type,
             location=event.location or "Unknown Context",
             severity=event.severity,
+            event_summary=event.summary or "",
             db=db
         )
         
@@ -232,3 +239,45 @@ async def get_event_decision_intelligence(
     except Exception as exc:
         logger.exception("Failed to generate decision intelligence: %s", str(exc))
         raise HTTPException(status_code=500, detail="Decision intelligence generation failed") from exc
+
+
+@router.post(
+    "/events/{event_id}/simulate/enrich",
+    response_model=APIResponse,
+    summary="Enrich Simulation Node with Deep Intelligence",
+    description="Asynchronously generates news-anchored Why/How reasoning for a specific node in the simulation."
+)
+async def enrich_simulation_intelligence(
+    event_id: str,
+    request: SimulationEnrichmentRequest,
+    db: AsyncSession = Depends(get_db)
+) -> APIResponse:
+    """
+    Performs targeted AI reasoning for a single node.
+    """
+    try:
+        _validate_event_id(event_id)
+        query = select(Event).where(Event.id == event_id)
+        result = await db.execute(query)
+        event = result.scalar_one_or_none()
+        
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+            
+        enriched_node = await simulation_service.enrich_node_intelligence(
+            node_target=request.target,
+            depth=request.depth,
+            location=event.location,
+            industry=event.industry,
+            event_summary=event.summary
+        )
+        
+        return APIResponse(
+            status="success",
+            data=enriched_node
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to enrich simulation node: %s", str(exc))
+        raise HTTPException(status_code=500, detail="Enrichment failed") from exc

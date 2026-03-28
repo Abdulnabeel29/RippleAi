@@ -82,16 +82,18 @@ export const useEventSimulation = (eventId) => {
       let finalSimData = null;
       if (sim && sim.impacts && Array.isArray(sim.impacts)) {
         finalSimData = sim.impacts.map(i => ({
+          ...i,
           target: i.entity || i.target,
-          depth: i.depth,
           impact: i.impact_score !== undefined ? i.impact_score : i.impact
         }));
+        if (finalSimData.length === 0) finalSimData = null;
       } else if (Array.isArray(sim)) {
         finalSimData = sim;
+        if (finalSimData.length === 0) finalSimData = null;
       }
 
-      // Mock fallback if API not ready or fails
-      setSimulationData(finalSimData || mockSimulationData());
+      // Backend now provides generative synthetic fallbacks, mock data no longer needed on client side
+      setSimulationData(finalSimData || []);
       setImpactData(imp || []);
       } catch (err) {
         console.error(err);
@@ -104,18 +106,6 @@ export const useEventSimulation = (eventId) => {
   }, [eventId]);
 
   return { simulationData, impactData, loading };
-};
-
-// Mock data generator for visual demonstration when API is incomplete
-const mockSimulationData = () => {
-  return [
-    { target: "Supplier A", depth: 1, impact: 1.0 },
-    { target: "Supplier B", depth: 1, impact: 1.0 },
-    { target: "Distribution Center X", depth: 2, impact: 0.6 },
-    { target: "Distribution Center Y", depth: 2, impact: 0.6 },
-    { target: "Retailer Core", depth: 3, impact: 0.36 },
-    { target: "End Customer Network", depth: 3, impact: 0.36 }
-  ];
 };
 
 export const useDecisionIntelligence = (eventId) => {

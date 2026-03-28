@@ -104,10 +104,15 @@ class SimulationImpactItem(BaseModel):
     """
     Schema for individual entity impact from a simulation.
     """
-    entity: str
-    impact_score: float = Field(ge=0.0, le=1.0)
-    impact_level: str
+    target: str
+    impact: float = Field(ge=0.0, le=1.0)
     depth: int = Field(ge=1, le=3)
+    facility_type: Optional[str] = None
+    primary_metric: Optional[str] = None
+    risk_vector: Optional[str] = None
+    operational_impact: Optional[str] = None
+    delay_days: Optional[float] = None
+    is_synthesized: bool = False
 
 
 class EventSimulationResponse(BaseModel):
@@ -116,3 +121,11 @@ class EventSimulationResponse(BaseModel):
     """
     event: EventResponse
     impacts: list[SimulationImpactItem]
+
+class SimulationEnrichmentRequest(BaseModel):
+    """
+    Schema for individual node enrichment request.
+    """
+    target: str
+    depth: int
+    facility_type: Optional[str] = None

@@ -34,3 +34,18 @@ export const fetchPredictions = async () => {
   const result = await response.json();
   return result.predictions || result.data?.predictions || result.data || [];
 };
+
+export const enrichSimulationNode = async (eventId, node) => {
+  const response = await fetch(`${BASE_URL}/events/${eventId}/simulate/enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      target: node.target,
+      depth: node.depth,
+      facility_type: node.facility_type
+    })
+  });
+  if (!response.ok) throw new Error('Enrichment failed');
+  const result = await response.json();
+  return result.data;
+};
