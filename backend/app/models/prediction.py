@@ -31,5 +31,7 @@ class Prediction(Base):
     expected_delay_days = Column(Integer, nullable=False)
     risk_level = Column(String(50), nullable=False)
     explanation = Column(Text, nullable=False)
+    why = Column(Text, nullable=True)
+    how = Column(Text, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

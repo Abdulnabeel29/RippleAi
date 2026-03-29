@@ -49,3 +49,29 @@ export const enrichSimulationNode = async (eventId, node) => {
   const result = await response.json();
   return result.data;
 };
+export const enrichPrediction = async (prediction) => {
+  const response = await fetch(`${BASE_URL}/predictions/enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      event_type: prediction.event_type,
+      location: prediction.location,
+      risk_level: prediction.risk_level
+    })
+  });
+  if (!response.ok) throw new Error('Prediction enrichment failed');
+  const result = await response.json();
+  return result;
+};
+
+export const fetchPredictionBrief = async (prediction) => {
+  const params = new URLSearchParams({
+    event_type: prediction.event_type,
+    location: prediction.location,
+    risk_level: prediction.risk_level
+  });
+  const response = await fetch(`${BASE_URL}/predictions/brief?${params}`);
+  if (!response.ok) throw new Error('Failed to fetch prediction brief');
+  const result = await response.json();
+  return result;
+};

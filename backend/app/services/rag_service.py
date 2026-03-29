@@ -229,9 +229,6 @@ class RAGService:
             context_text = "\n\n".join(context_parts) if context_parts else f"Event: {event_type} detected in {location} with {severity} severity."
 
             # Step 2: Prompt LLM requesting structured JSON
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel(settings.GEMINI_MODEL)
-            
             prompt = f"""
             You are a Decision Intelligence AI for Global Supply Chain Managers.
             Analyze the following disruption:
@@ -270,16 +267,36 @@ class RAGService:
             }}
             """
 
-            # Enforce JSON output globally on this specific generation call
-            response = await model.generate_content_async(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    response_mime_type="application/json"
+            async def try_gemini():
+                genai.configure(api_key=settings.GEMINI_API_KEY)
+                model = genai.GenerativeModel(settings.GEMINI_MODEL)
+                response = await model.generate_content_async(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        response_mime_type="application/json"
+                    )
                 )
-            )
-            
-            clean_text = (response.text or "").strip()
-            return json.loads(clean_text)
+                clean_text = (response.text or "").strip()
+                return json.loads(clean_text)
+
+            async def try_groq():
+                from groq import AsyncGroq
+                if not settings.GROQ_API_KEY:
+                    raise Exception("No Groq API Key")
+                client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+                chat_completion = await client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=settings.GROQ_MODEL,
+                    response_format={"type": "json_object"}
+                )
+                return json.loads(chat_completion.choices[0].message.content)
+
+            try:
+                # Primary AI
+                return await try_gemini()
+            except Exception as e_ai:
+                logger.warning(f"RAG Primary Model failed: {e_ai}. Falling back to secondary...")
+                return await try_groq()
 
         except Exception as e:
             logger.error("Failed to generate robust decision intelligence: %s", str(e))

@@ -25,7 +25,7 @@ const GlobalMapPage = () => {
       {/* Page Header */}
       <div className="flex justify-between items-end px-8 md:px-10 pt-8 pb-6">
         <div>
-          <h2 className="text-4xl font-bold tracking-tight text-white mb-1">Global Risk Map</h2>
+          <h2 className="text-4xl font-bold tracking-tight text-white mb-1">Detected Disruptions</h2>
           <p className="text-slate-500 text-sm m-0">
             Live geospatial view of all active supply chain disruptions.
           </p>

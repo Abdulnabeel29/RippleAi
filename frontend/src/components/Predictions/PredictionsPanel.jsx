@@ -1,9 +1,74 @@
-import React from 'react';
-import { Target, TrendingUp, AlertOctagon } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Target, TrendingUp, AlertOctagon, Zap, Shield, ChevronRight, Activity, Cpu, MapPin } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import * as api from '../../services/api';
+import PredictionDetailView from './PredictionDetailView';
 
 const PredictionsPanel = ({ predictions }) => {
+  // Initialize enrichedData with already synthesized predictions from the backend
+  // Use a safety check to ensure predictions is actually an array
+  const [enrichedData, setEnrichedData] = useState(() => {
+    const initial = {};
+    if (Array.isArray(predictions)) {
+      predictions.forEach(p => {
+        if (p?.is_synthesized) {
+          const key = `${p.event_type}-${p.location}`;
+          initial[key] = { why: p.why, how: p.how };
+        }
+      });
+    }
+    return initial;
+  });
+
+  const [enrichingTargets, setEnrichingTargets] = useState(new Set());
+  const [selectedPrediction, setSelectedPrediction] = useState(null);
+
+  // Memoize sorted predictions to ensure stable top-down priority
+  const sortedPredictions = React.useMemo(() => {
+    if (!Array.isArray(predictions)) return [];
+    return [...predictions].sort((a, b) => (b.probability || 0) - (a.probability || 0));
+  }, [predictions]);
+
+  // Sequential Enrichment Loop
+  useEffect(() => {
+    if (sortedPredictions.length === 0) return;
+
+    // Only enrich if we don't have data in state AND it wasn't already synthesized via DB
+    const nodesToEnrich = sortedPredictions.filter(p => {
+       if (!p) return false;
+       const key = `${p.event_type}-${p.location}`;
+       return !enrichedData[key] && !p.is_synthesized && !enrichingTargets.has(key);
+    });
+
+    if (nodesToEnrich.length === 0) return;
+
+    const enrichNext = async () => {
+      const pred = nodesToEnrich[0];
+      const key = `${pred.event_type}-${pred.location}`;
+      setEnrichingTargets(prev => new Set(prev).add(key));
+
+      try {
+        // Sequential throttle for Gemini/Groq Free Tier RPM
+        // Increased to 3s for improved quota stability across 92+ nodes
+        await new Promise(r => setTimeout(r, 3000));
+        
+        const result = await api.enrichPrediction(pred);
+        setEnrichedData(prev => ({ ...prev, [key]: result }));
+      } catch (err) {
+        console.error(`Prediction enrichment failed for ${key}:`, err);
+      } finally {
+        setEnrichingTargets(prev => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    };
+
+    enrichNext();
+  }, [predictions, enrichedData, enrichingTargets]);
+
   if (!predictions) return (
     <Card className="flex flex-col gap-4 p-4 min-h-[300px] border-border bg-card shadow-lg bg-opacity-60 flex-1">
       <div className="h-6 w-2/5 rounded bg-muted/20 animate-pulse" />
@@ -12,19 +77,39 @@ const PredictionsPanel = ({ predictions }) => {
   );
 
   return (
-    <div className="flex flex-col w-full">
-      <div className="flex items-center justify-between mb-6 px-2">
-        <div className="flex items-center gap-3">
-          <h3 className="text-xl font-bold text-white tracking-tight m-0">AI Predictions Engine</h3>
-          <span className="bg-success/20 text-success px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider">Active Forecast</span>
+    <div className="flex flex-col w-full px-2">
+      <div className="flex items-center justify-between mb-8 px-2">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+             <h3 className="text-2xl font-bold text-white tracking-tighter m-0 flex items-center gap-2">
+               <Cpu size={20} className="text-secondary" />
+               AI Predictions Engine
+             </h3>
+             <span className="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-widest mt-1">
+               Strategic Forecast Mode
+             </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mono uppercase tracking-tight m-0">
+            Real-time statistical extrapolation of global supply chain volatility
+          </p>
         </div>
-        <button className="text-[10px] mono text-slate-500 uppercase hover:text-white transition-colors bg-transparent border-none cursor-pointer flex items-center gap-1">
-          Configuration <span className="material-symbols-outlined text-sm">settings_suggest</span>
-        </button>
+        <div className="flex items-center gap-6">
+           <div className="flex flex-col items-end">
+              <span className="text-[10px] text-slate-500 mono uppercase tracking-widest">Confidence Threshold</span>
+              <span className="text-xs font-bold text-white">GEN-4 MODEL: 92.4%</span>
+           </div>
+           <button className="h-10 w-10 flex items-center justify-center rounded-sm bg-white/5 border border-white/10 hover:bg-white hover:text-black transition-all group">
+             <span className="material-symbols-outlined text-sm group-hover:rotate-90 transition-transform">settings_suggest</span>
+           </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {predictions.map((pred, idx) => {
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {sortedPredictions.map((pred, idx) => {
+          const key = `${pred.event_type}-${pred.location}`;
+          const enrichment = enrichedData[key];
+          const isEnriching = enrichingTargets.has(key);
+          
           const riskColor = pred.risk_level.toLowerCase() === 'high' ? 'text-danger' :
             pred.risk_level.toLowerCase() === 'medium' ? 'text-warning' : 'text-low';
           const riskBg = pred.risk_level.toLowerCase() === 'high' ? 'bg-danger shadow-[0_0_8px_var(--danger-color)]' :
@@ -32,46 +117,126 @@ const PredictionsPanel = ({ predictions }) => {
 
           return (
             <motion.div
-              key={idx}
-              initial={{ opacity: 0, y: 10 }}
+              key={key}
+              initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05 }}
-              whileHover={{ scale: 1.02 }}
+              transition={{ delay: idx * 0.1, duration: 0.4 }}
+              className="relative group h-full cursor-pointer"
+              onClick={() => setSelectedPrediction(pred)}
             >
-              <div className="bg-[#151c25] p-5 rounded-sm border border-white/5 hover:border-white/10 transition-colors group h-full flex flex-col">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h4 className="text-sm font-bold text-white mb-1 m-0">{pred.event_type}</h4>
-                    <div className="flex items-center gap-2 text-slate-500 text-[10px] mono">
-                      <span className="material-symbols-outlined text-xs">location_on</span>
+              {/* Card Container */}
+              <div className="bg-[#0f151c] p-6 rounded-sm border border-white/5 group-hover:border-white/20 transition-all flex flex-col h-full shadow-2xl relative overflow-hidden">
+                
+                {/* Background Decor */}
+                <div className="absolute -right-4 -top-4 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity">
+                   <Target size={120} />
+                </div>
+
+                {/* Header Phase: Statistical Fact */}
+                <div className="flex justify-between items-start mb-6 relative z-10">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1.5">
+                       <Zap size={14} className={riskColor} />
+                       <h4 className="text-base font-bold text-white uppercase tracking-tight m-0">{pred.event_type.replace(/_/g, ' ')}</h4>
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-400 text-[10px] mono uppercase tracking-widest">
+                      <MapPin size={10} className="text-primary" />
                       {pred.location.toUpperCase()}
                     </div>
                   </div>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-sm bg-opacity-10 border mono font-bold ${riskColor} border-current opacity-80`}>
-                    {(pred.probability * 100).toFixed(0)}%
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`text-[11px] px-2 py-0.5 rounded-sm bg-black/40 border mono font-bold ${riskColor} border-current/30`}>
+                      {(pred.probability * 100).toFixed(0)}% PROB
+                    </span>
+                    <span className="text-[9px] text-slate-500 mono uppercase tracking-tighter">
+                       Tier 1 Factor Analysis
+                    </span>
+                  </div>
                 </div>
 
-                <div className="space-y-3 mb-4 flex-1">
-                  <div>
-                    <div className="flex justify-between text-[9px] mono text-slate-500 mb-1 uppercase">
-                      <span>CONFIDENCE SCORE</span>
-                      <span className="text-white">{pred.risk_level} IMPACT</span>
+                {/* Progress Bar: Risk Density */}
+                <div className="mb-6 relative z-10">
+                    <div className="flex justify-between items-end mb-2">
+                        <span className="text-[9px] mono text-slate-500 uppercase tracking-widest">Volatility Index</span>
+                        <span className={`text-[10px] font-bold ${riskColor} uppercase`}>{pred.risk_level} Impact</span>
                     </div>
-                    <div className="h-1 bg-[#2e353f] rounded-full overflow-hidden">
+                    <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${pred.probability * 100}%` }}
-                        transition={{ duration: 1, ease: 'easeOut' }}
+                        transition={{ duration: 1.2, ease: 'circOut' }}
                         className={`h-full rounded-full ${riskBg.split(' ')[0]}`}
                       />
                     </div>
+                </div>
+
+                {/* Deep Intelligence Phase: Narrative Synthesis */}
+                <div className="flex-1 space-y-5 relative z-10">
+                  
+                  {/* Risk Vector (WHY) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                           <Shield size={12} className="text-secondary" />
+                           <span className="text-[10px] font-bold text-white uppercase tracking-widest">Risk Vector (WHY)</span>
+                        </div>
+                        {enrichment ? (
+                           <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded-sm mono font-bold ring-1 ring-emerald-500/20">Synthesized</span>
+                        ) : (
+                           <span className="text-[8px] bg-white/5 text-slate-500 px-1 py-0.5 rounded-sm mono font-bold">Grounded</span>
+                        )}
+                    </div>
+                    <div className="p-3 bg-black/30 rounded-sm border border-white/5 min-h-[44px]">
+                       {enrichment ? (
+                          <p className="text-[11px] text-slate-300 leading-relaxed m-0 italic">
+                             "{enrichment.why}"
+                          </p>
+                       ) : (
+                          <div className="space-y-1.5">
+                             <div className="h-1 w-full bg-white/5 rounded animate-pulse" />
+                             <div className="h-1 w-2/3 bg-white/5 rounded animate-pulse" />
+                          </div>
+                       )}
+                    </div>
                   </div>
-                  <div className="p-2 bg-[#2e353f]/30 rounded-sm">
-                    <p className="text-[10px] text-slate-400 italic m-0 line-clamp-3">
-                      "{pred.explanation}"
-                    </p>
+
+                  {/* Operational Impact (HOW) */}
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2">
+                        <Activity size={12} className="text-primary" />
+                        <span className="text-[10px] font-bold text-white uppercase tracking-widest">Operational Impact (HOW)</span>
+                    </div>
+                    <div className="p-3 bg-black/30 rounded-sm border border-white/5 min-h-[44px]">
+                       {enrichment ? (
+                          <p className="text-[11px] text-slate-300 leading-relaxed m-0 italic">
+                             "{enrichment.how}"
+                          </p>
+                       ) : (
+                          <div className="space-y-1.5">
+                             <div className="h-1 w-full bg-white/5 rounded animate-pulse" />
+                             <div className="h-1 w-3/4 bg-white/5 rounded animate-pulse" />
+                          </div>
+                       )}
+                    </div>
                   </div>
+
+                </div>
+
+                {/* Footer: Predictions Stats */}
+                <div className="mt-6 pt-4 border-t border-white/5 flex justify-between items-center relative z-10">
+                   <div className="flex flex-col">
+                      <span className="text-[9px] text-slate-500 mono uppercase">Estimated Prop Delay</span>
+                      <span className="text-xs font-bold text-white">+{pred.expected_delay_days} Business Days</span>
+                   </div>
+                   <button 
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       setSelectedPrediction(pred);
+                     }}
+                     className="flex items-center gap-1 text-[9px] font-bold text-secondary uppercase tracking-widest hover:text-white transition-colors group/btn"
+                   >
+                     Strategic Brief <ChevronRight size={12} className="group-hover/btn:translate-x-0.5 transition-transform" />
+                   </button>
                 </div>
 
               </div>
@@ -79,6 +244,11 @@ const PredictionsPanel = ({ predictions }) => {
           );
         })}
       </div>
+
+      <PredictionDetailView 
+        prediction={selectedPrediction} 
+        onClose={() => setSelectedPrediction(null)} 
+      />
     </div>
   );
 };

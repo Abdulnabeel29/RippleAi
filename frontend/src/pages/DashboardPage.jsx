@@ -37,7 +37,7 @@ const DashboardPage = () => {
                 <div className="flex justify-between items-end px-1">
                     <div>
                         <h3 className="mono text-[10px] uppercase tracking-widest text-slate-500 m-0">Geospatial Intelligence Vector</h3>
-                        <h2 className="text-2xl font-bold text-white mt-1">Live Risk Map</h2>
+                        <h2 className="text-2xl font-bold text-white mt-1">Detected Disruptions Map</h2>
                     </div>
                 </div>
                 <div className="h-[550px] rounded-sm overflow-hidden ring-1 ring-white/5 shadow-2xl relative group">

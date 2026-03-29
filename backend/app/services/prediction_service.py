@@ -69,7 +69,14 @@ class PredictionService:
             total_global_weight = 0.0
 
             for event in events:
-                key = (event.event_type.lower(), event.location.lower())
+                ev_type = (event.event_type or "").lower().strip()
+                loc = (event.location or "").lower().strip()
+                
+                # Filter out useless data
+                if loc == "unknown" or ev_type in ["unknown", "noise", ""]:
+                    continue
+                    
+                key = (ev_type, loc)
                 
                 days_since = (now - event.detected_at).total_seconds() / (24 * 3600)
                 # Ensure non-negative days_since due to potential clock skew
@@ -93,7 +100,7 @@ class PredictionService:
 
             for key, data in topology_weights.items():
                 # Normalized Probability across all active predictions
-                probability = data["weight_sum"] / total_global_weight if total_global_weight > 0 else 0.0
+                probability = 1.0 - (1.0 / (1.0 + data["weight_sum"]))
                 
                 # Assign dynamic Risk Level string
                 if probability >= 0.7:
@@ -147,13 +154,138 @@ class PredictionService:
                     probability=p.probability,
                     expected_delay_days=p.expected_delay_days,
                     risk_level=p.risk_level,
-                    explanation=p.explanation
+                    explanation=p.explanation,
+                    why=p.why or "Analyzing risk factors...",
+                    how=p.how or "Modeling operational impact...",
+                    is_synthesized=bool(p.why and p.how)
                 )
                 for p in db_predictions
             ]
         except Exception as e:
             logger.error("Failed to retrieve predictions: %s", str(e))
+            # If the error is about missing columns (Schema mismatch), provide a helpful log
+            if "no such column" in str(e).lower() or "missing" in str(e).lower():
+                logger.warning("DB Schema out of sync with Prediction model. Run migrations or trigger refresh.")
             return []
+
+    async def enrich_prediction_intelligence(self, request: "PredictionEnrichmentRequest", db: AsyncSession) -> "PredictionItem":
+        """
+        Synthesize targeted AI reasoning for a prediction using dual-phase LLM approach.
+        """
+        import json
+        import google.generativeai as genai
+        from app.core.config import get_settings
+        from app.schemas.prediction import PredictionEnrichmentRequest, PredictionItem
+
+        settings = get_settings()
+        
+        prompt = f"""
+        You are a Strategic Supply Chain Intelligence AI. 
+        Analyze this disruption FORECAST and synthesize a high-fidelity risk narrative.
+        
+        FORECAST: {request.event_type} in {request.location}
+        RISK LEVEL: {request.risk_level}
+        
+        REQUIREMENTS:
+        1. RISK VECTOR (WHY): Explain the underlying factors (e.g. historical patterns, dependency density, regional instability).
+        2. OPERATIONAL IMPACT (HOW): Model how this disruption will propagate through the supply chain.
+        3. Return ONLY a valid JSON object: {{"why": "DETAILED_WHY", "how": "DETAILED_HOW"}}
+        """
+
+        # ── Distributed Intelligence Strategy ──────────────────
+        # Use a deterministic hash to split load 50/50 between Gemini and Groq as primary providers
+        import hashlib
+        node_id = f"{request.event_type}-{request.location}".lower()
+        node_hash = int(hashlib.md5(node_id.encode()).hexdigest(), 16)
+        primary_is_gemini = (node_hash % 2 == 0)
+
+        why, how = None, None
+
+        async def try_gemini():
+            try:
+                genai.configure(api_key=settings.GEMINI_API_KEY)
+                model = genai.GenerativeModel(settings.GEMINI_MODEL)
+                response = await model.generate_content_async(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(response_mime_type="application/json")
+                )
+                data = json.loads(response.text or '{}')
+                return data.get("why"), data.get("how")
+            except Exception as e:
+                logger.warning(f"Gemini Phase Failed for {request.location}: {e}")
+                return None, None
+
+        async def try_groq():
+            try:
+                from groq import AsyncGroq
+                if not settings.GROQ_API_KEY: return None, None
+                client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+                chat_completion = await client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=settings.GROQ_MODEL,
+                    response_format={"type": "json_object"}
+                )
+                data = json.loads(chat_completion.choices[0].message.content)
+                return data.get("why"), data.get("how")
+            except Exception as e:
+                logger.warning(f"Groq Phase Failed for {request.location}: {e}")
+                return None, None
+
+        # Execute Distributed Sequence
+        if primary_is_gemini:
+            why, how = await try_gemini()
+            if not why: why, how = await try_groq()
+        else:
+            why, how = await try_groq()
+            if not why: why, how = await try_gemini()
+
+        # Final Fallbacks if both fail
+        if not why:
+            why = "Predictive intelligence synthesis interrupted."
+            how = "Operational risk model offline."
+
+        # ── Intelligence Validation ──────────────────
+        fallbacks = {
+            "Strategic factor analysis pending...",
+            "Operational propagation delta pending...",
+            "Predictive intelligence synthesis interrupted.",
+            "Operational risk model offline."
+        }
+        
+        is_real_synthesis = (why not in fallbacks) and (how not in fallbacks)
+
+        # ── Persistence Step ──────────────────
+        try:
+            # Look up the specific prediction record to update
+            stmt = select(Prediction).where(
+                Prediction.event_type == request.event_type,
+                Prediction.location == request.location
+            )
+            result = await db.execute(stmt)
+            p_record = result.scalars().first()
+            
+            # ONLY PERSIST IF IT'S NOT A FALLBACK
+            if p_record and is_real_synthesis:
+                p_record.why = why
+                p_record.how = how
+                await db.commit()
+                logger.info("Persisted intelligence for forecast: %s in %s", request.event_type, request.location)
+            else:
+                logger.info("Skipped persisting fallback intelligence for %s", request.location)
+        except Exception as db_e:
+            logger.error("Failed to persist prediction intelligence: %s", str(db_e))
+            await db.rollback()
+ 
+        return PredictionItem(
+            event_type=request.event_type,
+            location=request.location,
+            probability=0.0,
+            expected_delay_days=0,
+            risk_level=request.risk_level,
+            why=why,
+            how=how,
+            is_synthesized=is_real_synthesis
+        )
 
 
 # Singleton

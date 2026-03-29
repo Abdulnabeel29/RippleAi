@@ -79,7 +79,8 @@ export default {
         },
         "low": {
           DEFAULT: "#333a44"
-        }
+        },
+        "border": "#2e353f"
       },
       borderRadius: {
         lg: "0.25rem",

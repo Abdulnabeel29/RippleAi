@@ -38,7 +38,7 @@ const DashboardLayout = ({ sidebar, children }) => {
               to="/map" 
               className={({ isActive }) => `font-['Inter'] text-[10px] md:text-xs uppercase tracking-[0.2em] font-medium transition-colors cursor-pointer whitespace-nowrap ${isActive ? 'text-white border-b-2 border-white pb-1' : 'text-slate-500 hover:text-white'}`}
             >
-              Global Map
+              Detected Disruptions
             </NavLink>
             <NavLink 
               to="/graph" 

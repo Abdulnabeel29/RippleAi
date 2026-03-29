@@ -15,6 +15,17 @@ class PredictionItem(BaseModel):
     expected_delay_days: int = Field(ge=0)
     risk_level: str
     explanation: str = Field(default="Reasoning pending...")
+    why: str = Field(default="Analyzing risk factors...")
+    how: str = Field(default="Modeling operational impact...")
+    is_synthesized: bool = False
+
+class PredictionEnrichmentRequest(BaseModel):
+    """
+    Schema for targeted prediction enrichment.
+    """
+    event_type: str
+    location: str
+    risk_level: str
 
 
 class PredictionResponse(BaseModel):
