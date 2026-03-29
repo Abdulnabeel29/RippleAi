@@ -5,6 +5,7 @@ Exposes the GET /events endpoint for retrieving detected disruption
 events with optional filtering and pagination.
 """
 
+import asyncio
 import logging
 import uuid
 from typing import Optional
@@ -12,6 +13,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# In-memory event-level decision cache: { event_id: decision_dict }
+_decision_cache: dict = {}
 
 from app.core.database import get_db
 from app.models.event import Event
@@ -130,7 +134,8 @@ async def get_event_impact(
     """
     try:
         _validate_event_id(event_id)
-        query = select(Event).where(Event.id == event_id)
+        ev_uuid = uuid.UUID(event_id)
+        query = select(Event).where(Event.id == ev_uuid)
         result = await db.execute(query)
         event = result.scalar_one_or_none()
         
@@ -171,20 +176,31 @@ async def get_event_simulation(
     """
     try:
         _validate_event_id(event_id)
-        query = select(Event).where(Event.id == event_id)
+        ev_uuid = uuid.UUID(event_id)
+        query = select(Event).where(Event.id == ev_uuid)
         result = await db.execute(query)
         event = result.scalar_one_or_none()
         
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
             
-        simulated_impacts = await simulation_service.simulate_impact(
-            event_id=event.id,
-            event_type=event.event_type,
-            location=event.location,
-            industry=event.industry,
-            event_summary=event.summary
-        )
+        # --- CACHE-FIRST LOGIC ---
+        import json
+        if event.simulation_results:
+            logger.info("Serving cached simulation for event %s", event_id)
+            simulated_impacts = json.loads(event.simulation_results)
+        else:
+            logger.info("Simulation cache MISS for event %s - performing lazy enrichment", event_id)
+            simulated_impacts = await simulation_service.simulate_impact(
+                event_id=event.id,
+                event_type=event.event_type,
+                location=event.location,
+                industry=event.industry,
+                event_summary=event.summary
+            )
+            # Persist for next time
+            event.simulation_results = json.dumps(simulated_impacts)
+            await db.commit()
         
         return APIResponse(
             status="success",
@@ -212,27 +228,116 @@ async def get_event_decision_intelligence(
 ) -> APIResponse:
     try:
         _validate_event_id(event_id)
+
+        # ── Serve from in-memory cache if available ──────────────────
+        if event_id in _decision_cache:
+            logger.info("Decision cache HIT for event %s", event_id)
+            return APIResponse(
+                status="success",
+                data={"event_id": event_id, "intelligence": _decision_cache[event_id]}
+            )
+
         query = select(Event).where(Event.id == event_id)
         result = await db.execute(query)
         event = result.scalar_one_or_none()
-        
+
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
-            
-        decision_data = await rag_service.generate_decision_intelligence(
-            event_type=event.event_type,
-            location=event.location or "Unknown Context",
-            severity=event.severity,
-            event_summary=event.summary or "",
-            db=db
+
+        # ── Build deterministic fallback immediately so we never block ─
+        severity_map = {
+            "critical": "severe, potentially catastrophic",
+            "high": "significant and escalating",
+            "medium": "moderate with regional exposure",
+            "low": "contained but monitored",
+        }
+        sev = str(event.severity or "medium").lower()
+        severity_desc = severity_map.get(sev, "significant")
+        etype = event.event_type or "disruption"
+        loc = event.location or "Unknown Region"
+        base_summary = (
+            event.summary.strip()
+            if event.summary and event.summary.strip()
+            else f"A {etype} event detected in {loc} is showing {severity_desc} disruption signals."
         )
-        
+        fallback_intelligence = {
+            "narrative_explanation": (
+                f"{base_summary} As this {etype} develops in {loc}, supply chain operators face "
+                f"{severity_desc} exposure across direct logistics dependencies. "
+                "Immediate situational awareness and contingency activation is recommended."
+            ),
+            "impact_analysis": {
+                "affected_industries": ["Logistics & Freight", "Regional Manufacturing", "Import/Export Trade"],
+                "estimated_delay_timeline": "3-10 days depending on severity escalation",
+                "severity_explanation": (
+                    f"Classified as {sev} severity based on geographic scope of {loc} "
+                    f"and historical patterns for {etype} class events."
+                ),
+            },
+            "time_based_impact": {
+                "immediate": (
+                    f"Shipments routing through {loc} face immediate delays. "
+                    "Expect disrupted transit windows and potential carrier rerouting within 24-48 hours."
+                ),
+                "short_term": (
+                    f"Regional distribution hubs dependent on {loc} will face capacity strain. "
+                    "Alternative routing should be activated within 3-5 days to prevent compounding delays."
+                ),
+                "medium_term": (
+                    f"If the {etype} persists beyond 7 days, downstream inventory depletion is expected. "
+                    "Supplier diversification and safety stock adjustments are essential."
+                ),
+            },
+            "action_recommendations": [
+                {
+                    "strategy": "Activate Contingency Routing",
+                    "operational_suggestion": (
+                        f"Identify and pre-book alternative freight lanes bypassing {loc}. "
+                        "Contact carriers to assess rerouting lead times immediately."
+                    ),
+                },
+                {
+                    "strategy": "Escalate Supplier Communication",
+                    "operational_suggestion": (
+                        f"Notify all Tier-1 suppliers operating in or dependent on {loc} about the {etype}. "
+                        "Collect ETAs and confirm backup sourcing options."
+                    ),
+                },
+            ],
+        }
+
+        # --- CACHE-FIRST LOGIC ---
+        import json
+        if event.strategic_brief:
+            logger.info("Serving cached decision intelligence for event %s", event_id)
+            decision_data = json.loads(event.strategic_brief)
+        else:
+            logger.info("Decision cache MISS for event %s - performing lazy enrichment", event_id)
+            # ── Attempt AI enrichment with a 12 s timeout ────────────────
+            try:
+                decision_data = await asyncio.wait_for(
+                    rag_service.generate_decision_intelligence(
+                        event_type=etype,
+                        location=loc,
+                        severity=sev,
+                        event_summary=event.summary or "",
+                        db=db,
+                    ),
+                    timeout=12.0,
+                )
+                # Persist for next time
+                event.strategic_brief = json.dumps(decision_data)
+                await db.commit()
+            except asyncio.TimeoutError:
+                logger.warning("Decision intelligence timed out for event %s — serving fallback", event_id)
+                decision_data = fallback_intelligence
+            except Exception as ai_err:
+                logger.warning("Decision AI failed for event %s (%s) — serving fallback", event_id, ai_err)
+                decision_data = fallback_intelligence
+
         return APIResponse(
             status="success",
-            data={
-                "event_id": event.id,
-                "intelligence": decision_data
-            }
+            data={"event_id": event.id, "intelligence": decision_data}
         )
     except HTTPException:
         raise

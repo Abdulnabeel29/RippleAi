@@ -25,6 +25,7 @@ from app.services.event_detection_service import detect_event
 from app.services.news_service import fetch_news
 from app.services.graph_service import graph_service
 from app.services.rag_service import rag_service
+from app.services.simulation_service import simulation_service
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,35 @@ async def run_ingestion_pipeline(db: AsyncSession) -> dict[str, Any]:
                     event_data.event_type,
                     event_data.severity,
                 )
+
+                # --- NEW: ENRICH ON CREATION ---
+                try:
+                    logger.info("Enriching event %s with Decision Intelligence...", event.id)
+                    await rag_service.generate_decision_intelligence(
+                        event_type=event.event_type,
+                        location=event.location,
+                        severity=event.severity,
+                        event_summary=event.summary,
+                        db=db
+                    )
+                    
+                    # Also pre-generate Ripple Simulation Results
+                    logger.info("Enriching event %s with Ripple Simulation Results...", event.id)
+                    import json
+                    sim_results = await simulation_service.simulate_impact(
+                        event_id=event.id,
+                        event_type=event.event_type,
+                        location=event.location,
+                        industry=event.industry,
+                        event_summary=event.summary
+                    )
+                    event.simulation_results = json.dumps(sim_results)
+                    
+                    # 2s delay to avoid Gemini rate limits
+                    await asyncio.sleep(2)
+                except Exception as enrich_err:
+                    logger.warning("Enrichment failed for event %s (will retry on demand): %s", event.id, enrich_err)
+                # ------------------------------
             else:
                 logger.debug(
                     "No disruption event found in article: '%s'",
@@ -127,9 +157,13 @@ async def run_ingestion_pipeline(db: AsyncSession) -> dict[str, Any]:
                 type(exc).__name__,
                 str(exc),
             )
-            # Continue processing remaining articles
+            # No global rollback here anymore — the nested transaction (savepoint)
+            # would have been rolled back by the 'async with db.begin_nested()' 
+            # if we were using it, but for simplicity we just continue.
+            # The next article will start fresh.
             continue
 
+    # Final commit for newly detected events
     await db.commit()
 
     logger.info(
@@ -205,10 +239,10 @@ async def _store_articles(
         except Exception as e:
             logger.warning("Failed to generate embedding for article: %s", str(e))
             
-        db.add(article)
-
         try:
-            await db.flush()
+            async with db.begin_nested():
+                db.add(article)
+                await db.flush()
             new_articles.append(article)
         except Exception as exc:
             logger.warning(
@@ -216,9 +250,12 @@ async def _store_articles(
                 url[:80],
                 str(exc),
             )
-            await db.rollback()
+            # Skip this article but continue the loop
             continue
-
+            
+    # COMMIT articles now so they exist even if detection crashes later.
+    # This also gives the frontend articles to show immediately.
+    await db.commit()
     return new_articles
 
 

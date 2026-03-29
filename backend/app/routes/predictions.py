@@ -54,10 +54,39 @@ async def get_prediction_brief(
     """
     Generate deep-dive strategic brief for a prediction.
     """
-    return await rag_service.generate_decision_intelligence(
-        event_type=event_type,
-        location=location,
-        severity=risk_level,
-        db=db,
-        event_summary=f"Forecasted {event_type} risk in {location} with {risk_level} impact potential."
-    )
+    try:
+        from app.models.prediction import Prediction
+        from sqlalchemy import select
+        import json
+        
+        # Check cache first
+        query = select(Prediction).where(
+            Prediction.event_type == event_type,
+            Prediction.location == location
+        )
+        result = await db.execute(query)
+        prediction = result.scalar_one_or_none()
+        
+        if prediction and prediction.strategic_brief:
+            logger.info("Serving cached prediction brief for %s in %s", event_type, location)
+            return json.loads(prediction.strategic_brief)
+            
+        # Fallback to AI generation
+        logger.info("Cache miss for prediction brief %s (%s) - generating...", event_type, location)
+        brief = await rag_service.generate_decision_intelligence(
+            event_type=event_type,
+            location=location,
+            severity=risk_level,
+            db=db,
+            event_summary=f"Forecasted {event_type} risk in {location} with {risk_level} impact potential."
+        )
+        
+        # Persist if prediction record exists
+        if prediction:
+            prediction.strategic_brief = json.dumps(brief)
+            await db.commit()
+            
+        return brief
+    except Exception as exc:
+        logger.exception("Failed to get prediction brief: %s", str(exc))
+        return {"error": "Intelligence synthesis failed"}

@@ -8,7 +8,8 @@ Each article is uniquely identified by its URL to prevent duplicates.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, String, Text, JSON
+from sqlalchemy import Column, DateTime, String, Text
+from sqlalchemy.dialects.postgresql import UUID, JSON
 
 from app.models.base import Base
 
@@ -38,16 +39,21 @@ class NewsArticle(Base):
 
     __tablename__ = "news_articles"
 
-    id = Column(String(36), primary_key=True, default=generate_uuid)
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True
+    )
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
     content = Column(Text, nullable=True)
     source = Column(String(255), nullable=True)
     author = Column(String(255), nullable=True)
     url = Column(Text, unique=True, nullable=False, index=True)
-    published_at = Column(DateTime, nullable=True)
+    published_at = Column(DateTime(timezone=True), nullable=True)
     ingested_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )

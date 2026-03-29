@@ -295,8 +295,8 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
             </div>
             <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
               <AnimatePresence>
-                {visibleNodes.length > 0 ? (
-                  [...visibleNodes].sort((a, b) => b.impact - a.impact).map((node, i) => {
+                {simulationData ? (
+                  [...simulationData].sort((a, b) => b.impact - a.impact).map((node, i) => {
                     const FacilityIcon = getFacilityIcon(node.facility_type);
                     return (
                       <motion.div
@@ -395,9 +395,25 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
                   );
                 })
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-full py-12 opacity-40 text-center gap-3">
-                    <Network size={28} />
-                    <p className="text-[10px] tracking-widest uppercase">Computing Topology…</p>
+                  // Skeleton Loading State for structural impact list
+                  <div className="flex flex-col gap-3">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="p-3 bg-card/40 border border-white/5 rounded-md animate-pulse">
+                        <div className="flex justify-between mb-3">
+                          <div className="h-3 w-24 bg-white/10 rounded" />
+                          <div className="h-3 w-8 bg-white/10 rounded" />
+                        </div>
+                        <div className="h-1.5 w-full bg-white/5 rounded-full mb-3" />
+                        <div className="flex flex-col gap-2">
+                          <div className="h-2 w-full bg-white/5 rounded" />
+                          <div className="h-2 w-2/3 bg-white/5 rounded" />
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex flex-col items-center justify-center py-6 opacity-30 text-center gap-2">
+                       <Network size={20} className="animate-spin" />
+                       <p className="text-[8px] tracking-[0.2em] uppercase">Synthesizing Network Topologies…</p>
+                    </div>
                   </div>
                 )}
               </AnimatePresence>

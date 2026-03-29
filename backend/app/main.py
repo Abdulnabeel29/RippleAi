@@ -35,6 +35,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app: The FastAPI application instance.
     """
     # ── Startup ─────────────────────────────────────────────
+    from app.core.config import get_settings
+    settings = get_settings()
+    logger.info("Starting Supply Chain Intelligence Engine on %s", settings.APP_ENV)
+    logger.info("DATABASE_URL: %s", settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else settings.DATABASE_URL)
+    
     setup_logging()
     logger.info("Starting Global Supply Chain Intelligence Engine...")
     await create_tables()

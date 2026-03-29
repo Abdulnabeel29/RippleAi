@@ -32,6 +32,21 @@ const PredictionDetailView = ({ prediction, onClose }) => {
     if (!prediction) return;
 
     const loadBrief = async () => {
+      // 1. Check if the brief is already baked into the prediction object from the main list
+      if (prediction.strategic_brief) {
+        try {
+          const parsed = typeof prediction.strategic_brief === 'string' 
+            ? JSON.parse(prediction.strategic_brief) 
+            : prediction.strategic_brief;
+          setBrief(parsed);
+          setLoading(false);
+          return;
+        } catch (err) {
+          console.warn("Failed to parse pre-calculated brief, falling back to fetch:", err);
+        }
+      }
+
+      // 2. Fallback to cache-first fetch from backend
       setLoading(true);
       try {
         const data = await api.fetchPredictionBrief(prediction);

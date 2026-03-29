@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as api from '../services/api';
+import { supabase } from '../services/supabase';
 
 export const useIntelligenceData = () => {
   const [events, setEvents] = useState([]);
@@ -40,13 +41,31 @@ export const useIntelligenceData = () => {
     fetchEventsProcess();
     fetchPredictionsProcess();
 
-    // In a real app we'd poll or use WebSockets
-    const interval = setInterval(() => {
-      fetchEventsProcess();
-      fetchPredictionsProcess();
-    }, 30000);
+    // --- SUPABASE REALTIME SUBSCRIPTION ---
+    const eventsChannel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'events' },
+        () => {
+          console.log('Realtime update: events table changed');
+          fetchEventsProcess();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'predictions' },
+        () => {
+          console.log('Realtime update: predictions table changed');
+          fetchPredictionsProcess();
+        }
+      )
+      .subscribe();
     
-    return () => clearInterval(interval);
+    return () => {
+      supabase.removeChannel(eventsChannel);
+    };
+    // --------------------------------------
   }, []);
 
   return { 
@@ -92,8 +111,8 @@ export const useEventSimulation = (eventId) => {
         if (finalSimData.length === 0) finalSimData = null;
       }
 
-      // Backend now provides generative synthetic fallbacks, mock data no longer needed on client side
-      setSimulationData(finalSimData || []);
+      // Backend now provides persistent JSON results. If null, we stay in loading state.
+      setSimulationData(finalSimData);
       setImpactData(imp || []);
       } catch (err) {
         console.error(err);
@@ -124,14 +143,42 @@ export const useDecisionIntelligence = (eventId) => {
         const data = await api.fetchEventDecision(eventId);
         setDecisionData(data);
       } catch (err) {
-        console.error(err);
-        setDecisionData(null);
+        console.error("Failed to fetch decision intel:", err);
       } finally {
         setLoading(false);
       }
     };
-    
+
     fetchDecision();
+
+    // --- REALTIME SUBSCRIPTION FOR ENRICHMENT ---
+    const channel = supabase
+      .channel(`event-enrichment-${eventId}`)
+      .on(
+        'postgres_changes',
+        { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'events',
+          filter: `id=eq.${eventId}`
+        },
+        (payload) => {
+          if (payload.new && payload.new.strategic_brief) {
+            console.log('Realtime enrichment received for event:', eventId);
+            try {
+              setDecisionData(JSON.parse(payload.new.strategic_brief));
+            } catch (e) {
+              fetchDecision();
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // --------------------------------------------
   }, [eventId]);
 
   return { decisionData, loading };

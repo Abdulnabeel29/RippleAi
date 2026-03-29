@@ -98,7 +98,16 @@ const EventFeed = ({ events, onEventSelect, selectedEventId }) => {
                         {evt.event_type}
                       </span>
                       <span className="mono text-[9px] text-slate-500 mt-1">
-                        {evt.detected_at ? formatDistanceToNow(new Date(evt.detected_at + 'Z')).replace('about ', '').replace(' hours', 'h').replace(' minutes', 'm') + ' ago' : 'Live'}
+                        {(() => {
+                          if (!evt.detected_at) return 'Live';
+                          const d = new Date(evt.detected_at);
+                          if (isNaN(d.getTime())) return 'Live';
+                          return formatDistanceToNow(d)
+                            .replace('about ', '')
+                            .replace(' hours', 'h')
+                            .replace(' minutes', 'm')
+                            .replace(' seconds', 's') + ' ago';
+                        })()}
                       </span>
                     </div>
 

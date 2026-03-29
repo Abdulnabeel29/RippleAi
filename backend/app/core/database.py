@@ -58,17 +58,27 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+# Note: Models must be imported after Base is defined to avoid circular imports, 
+# but before create_tables() is called to ensure they are registered with the Metadata.
+# We import them here at the module level (below the engine/session setup) for consistency.
+
 async def create_tables() -> None:
     """
     Creates all database tables defined by SQLAlchemy models.
 
     Should be called once during application startup.
     """
-    from app.models.base import Base  # noqa: E402 — deferred to avoid circular imports
-    from app.models.news_article import NewsArticle  # noqa: F401 — register model
-    from app.models.event import Event  # noqa: F401 — register model
-    from app.models.prediction import Prediction  # noqa: F401 — register model
+    from app.models.base import Base
+    # The following imports are required to register models with Base.metadata
+    import app.models.news_article  # noqa: F401
+    import app.models.event  # noqa: F401
+    import app.models.prediction  # noqa: F401
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables created successfully.")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables verified/created on Supabase.")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        # We don't raise here to allow the app to start even if DB is partially ready 
+        # (though SQLAlchemy won't allow much)

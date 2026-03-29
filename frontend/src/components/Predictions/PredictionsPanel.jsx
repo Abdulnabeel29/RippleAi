@@ -6,22 +6,6 @@ import * as api from '../../services/api';
 import PredictionDetailView from './PredictionDetailView';
 
 const PredictionsPanel = ({ predictions }) => {
-  // Initialize enrichedData with already synthesized predictions from the backend
-  // Use a safety check to ensure predictions is actually an array
-  const [enrichedData, setEnrichedData] = useState(() => {
-    const initial = {};
-    if (Array.isArray(predictions)) {
-      predictions.forEach(p => {
-        if (p?.is_synthesized) {
-          const key = `${p.event_type}-${p.location}`;
-          initial[key] = { why: p.why, how: p.how };
-        }
-      });
-    }
-    return initial;
-  });
-
-  const [enrichingTargets, setEnrichingTargets] = useState(new Set());
   const [selectedPrediction, setSelectedPrediction] = useState(null);
 
   // Memoize sorted predictions to ensure stable top-down priority
@@ -29,45 +13,6 @@ const PredictionsPanel = ({ predictions }) => {
     if (!Array.isArray(predictions)) return [];
     return [...predictions].sort((a, b) => (b.probability || 0) - (a.probability || 0));
   }, [predictions]);
-
-  // Sequential Enrichment Loop
-  useEffect(() => {
-    if (sortedPredictions.length === 0) return;
-
-    // Only enrich if we don't have data in state AND it wasn't already synthesized via DB
-    const nodesToEnrich = sortedPredictions.filter(p => {
-       if (!p) return false;
-       const key = `${p.event_type}-${p.location}`;
-       return !enrichedData[key] && !p.is_synthesized && !enrichingTargets.has(key);
-    });
-
-    if (nodesToEnrich.length === 0) return;
-
-    const enrichNext = async () => {
-      const pred = nodesToEnrich[0];
-      const key = `${pred.event_type}-${pred.location}`;
-      setEnrichingTargets(prev => new Set(prev).add(key));
-
-      try {
-        // Sequential throttle for Gemini/Groq Free Tier RPM
-        // Increased to 3s for improved quota stability across 92+ nodes
-        await new Promise(r => setTimeout(r, 3000));
-        
-        const result = await api.enrichPrediction(pred);
-        setEnrichedData(prev => ({ ...prev, [key]: result }));
-      } catch (err) {
-        console.error(`Prediction enrichment failed for ${key}:`, err);
-      } finally {
-        setEnrichingTargets(prev => {
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        });
-      }
-    };
-
-    enrichNext();
-  }, [predictions, enrichedData, enrichingTargets]);
 
   if (!predictions) return (
     <Card className="flex flex-col gap-4 p-4 min-h-[300px] border-border bg-card shadow-lg bg-opacity-60 flex-1">
@@ -107,13 +52,13 @@ const PredictionsPanel = ({ predictions }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {sortedPredictions.map((pred, idx) => {
           const key = `${pred.event_type}-${pred.location}`;
-          const enrichment = enrichedData[key];
-          const isEnriching = enrichingTargets.has(key);
-          
           const riskColor = pred.risk_level.toLowerCase() === 'high' ? 'text-danger' :
             pred.risk_level.toLowerCase() === 'medium' ? 'text-warning' : 'text-low';
           const riskBg = pred.risk_level.toLowerCase() === 'high' ? 'bg-danger shadow-[0_0_8px_var(--danger-color)]' :
             pred.risk_level.toLowerCase() === 'medium' ? 'bg-warning shadow-[0_0_8px_var(--warning-color)]' : 'bg-low';
+
+          // Data is synthesized if why/how are present and not the default loading strings
+          const isSynthesized = pred.is_synthesized || (pred.why && !pred.why.includes('Analyzing') && !pred.why.includes('pending'));
 
           return (
             <motion.div
@@ -180,16 +125,16 @@ const PredictionsPanel = ({ predictions }) => {
                            <Shield size={12} className="text-secondary" />
                            <span className="text-[10px] font-bold text-white uppercase tracking-widest">Risk Vector (WHY)</span>
                         </div>
-                        {enrichment ? (
+                        {isSynthesized ? (
                            <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded-sm mono font-bold ring-1 ring-emerald-500/20">Synthesized</span>
                         ) : (
-                           <span className="text-[8px] bg-white/5 text-slate-500 px-1 py-0.5 rounded-sm mono font-bold">Grounded</span>
+                           <span className="text-[8px] bg-white/5 text-slate-500 px-1 py-0.5 rounded-sm mono font-bold">Predicting…</span>
                         )}
                     </div>
                     <div className="p-3 bg-black/30 rounded-sm border border-white/5 min-h-[44px]">
-                       {enrichment ? (
+                       {isSynthesized ? (
                           <p className="text-[11px] text-slate-300 leading-relaxed m-0 italic">
-                             "{enrichment.why}"
+                             "{pred.why}"
                           </p>
                        ) : (
                           <div className="space-y-1.5">
@@ -207,9 +152,9 @@ const PredictionsPanel = ({ predictions }) => {
                         <span className="text-[10px] font-bold text-white uppercase tracking-widest">Operational Impact (HOW)</span>
                     </div>
                     <div className="p-3 bg-black/30 rounded-sm border border-white/5 min-h-[44px]">
-                       {enrichment ? (
+                       {isSynthesized ? (
                           <p className="text-[11px] text-slate-300 leading-relaxed m-0 italic">
-                             "{enrichment.how}"
+                             "{pred.how}"
                           </p>
                        ) : (
                           <div className="space-y-1.5">

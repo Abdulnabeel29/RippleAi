@@ -105,11 +105,11 @@ class RAGService:
             expected_dim = query_vec.shape[0]
 
             # Fetch articles that have embeddings
-            # In a production scenario, this would be a specialized vector query (e.g. pgvector or Pinecone)
             query_stmt = select(NewsArticle).where(NewsArticle.embedding != None)
             result = await db.execute(query_stmt)
             articles = result.scalars().all()
-
+            
+            # If no articles yet, this is common for first-ever ingestion
             if not articles:
                 return []
 
@@ -215,6 +215,38 @@ class RAGService:
         and action recommendations using Gemini JSON mode based on RAG context.
         """
         try:
+            from app.models.prediction import Prediction
+            stmt = select(Prediction).where(
+                Prediction.event_type == event_type,
+                Prediction.location == location
+            )
+            result = await db.execute(stmt)
+            p_record = result.scalars().first()
+            
+            # --- CACHE LAYER ---
+            # Try to find existing enrichment in Event or Prediction
+            from app.models.event import Event
+            from app.models.prediction import Prediction
+            
+            # 1. Check Event Cache
+            event_stmt = select(Event).where(Event.event_type == event_type, Event.location == location)
+            ev_res = await db.execute(event_stmt)
+            ev_record = ev_res.scalars().first()
+            if ev_record and ev_record.strategic_brief:
+                try:
+                    return json.loads(ev_record.strategic_brief)
+                except: pass
+
+            # 2. Check Prediction Cache
+            pred_stmt = select(Prediction).where(Prediction.event_type == event_type, Prediction.location == location)
+            p_res = await db.execute(pred_stmt)
+            p_record = p_res.scalars().first()
+            if p_record and p_record.strategic_brief:
+                try:
+                    return json.loads(p_record.strategic_brief)
+                except: pass
+            # -------------------
+
             # Step 1: Retrieve Context
             query = f"{event_type} disruption in {location}"
             context_docs = await self.retrieve_context(query, db, limit=5)
@@ -277,6 +309,9 @@ class RAGService:
                     )
                 )
                 clean_text = (response.text or "").strip()
+                # Remove markdown fences if model ignored the mime_type instruction
+                if clean_text.startswith("```"):
+                    clean_text = clean_text.split("\n", 1)[-1].rsplit("\n", 1)[0].strip()
                 return json.loads(clean_text)
 
             async def try_groq():
@@ -293,10 +328,22 @@ class RAGService:
 
             try:
                 # Primary AI
-                return await try_gemini()
+                result_json = await try_gemini()
             except Exception as e_ai:
                 logger.warning(f"RAG Primary Model failed: {e_ai}. Falling back to secondary...")
-                return await try_groq()
+                result_json = await try_groq()
+
+            # --- PERSIST CACHE TO SUPABASE ---
+            serialized = json.dumps(result_json)
+            if ev_record:
+                ev_record.strategic_brief = serialized
+            if p_record:
+                p_record.strategic_brief = serialized
+            
+            # Note: We do NOT commit here. The caller (ingestion/prediction service)
+            # owns the session transaction and will commit at the end of the batch.
+            
+            return result_json
 
         except Exception as e:
             logger.error("Failed to generate robust decision intelligence: %s", str(e))

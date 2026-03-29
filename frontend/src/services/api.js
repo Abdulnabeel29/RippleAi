@@ -1,10 +1,24 @@
+import { supabase } from './supabase';
+
 const BASE_URL = '/api';
 
 export const fetchEvents = async () => {
-  const response = await fetch(`${BASE_URL}/events`);
-  if (!response.ok) throw new Error('Failed to fetch events');
-  const result = await response.json();
-  return result.data?.events || result.events || result.data || [];
+  // Direct read from Supabase for maximum speed
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .order('detected_at', { ascending: false });
+  
+  if (error) {
+    console.error('Supabase fetch error:', error);
+    // Fallback to backend API
+    const response = await fetch(`${BASE_URL}/events`);
+    if (!response.ok) throw new Error('Failed to fetch events');
+    const result = await response.json();
+    return result.data?.events || result.events || result.data || [];
+  }
+  
+  return data || [];
 };
 
 export const fetchEventImpact = async (eventId) => {
@@ -22,6 +36,24 @@ export const fetchEventSimulation = async (eventId) => {
 };
 
 export const fetchEventDecision = async (eventId) => {
+  // First attempt: Direct read from Supabase 'strategic_brief' column
+  if (eventId) {
+    const { data, error } = await supabase
+      .from('events')
+      .select('strategic_brief')
+      .eq('id', eventId)
+      .single();
+    
+    if (!error && data?.strategic_brief) {
+      try {
+        return JSON.parse(data.strategic_brief);
+      } catch (e) {
+        console.error('Failed to parse strategic_brief from Supabase:', e);
+      }
+    }
+  }
+
+  // Second attempt: Prediction table cache if primary event record is missing brief
   const response = await fetch(`${BASE_URL}/events/${eventId}/decision`);
   if (!response.ok) throw new Error('Failed to fetch decision intelligence');
   const result = await response.json();
@@ -29,10 +61,28 @@ export const fetchEventDecision = async (eventId) => {
 };
 
 export const fetchPredictions = async () => {
-  const response = await fetch(`${BASE_URL}/predictions`);
-  if (!response.ok) throw new Error('Failed to fetch predictions');
-  const result = await response.json();
-  return result.predictions || result.data?.predictions || result.data || [];
+  // Direct read from Supabase for maximum speed
+  const { data, error } = await supabase
+    .from('predictions')
+    .select('*')
+    .order('probability', { ascending: false });
+  
+  if (error) {
+    console.error('Supabase fetch predictions error:', error);
+    // Fallback
+    const response = await fetch(`${BASE_URL}/predictions`);
+    if (!response.ok) throw new Error('Failed to fetch predictions');
+    const result = await response.json();
+    return result.predictions || result.data?.predictions || result.data || [];
+  }
+  
+  // Transform to match frontend schema
+  return (data || []).map(p => ({
+    ...p,
+    why: p.why || "Analyzing risk factors...",
+    how: p.how || "Modeling operational impact...",
+    is_synthesized: !!(p.why && p.how)
+  }));
 };
 
 export const enrichSimulationNode = async (eventId, node) => {

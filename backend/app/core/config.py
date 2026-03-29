@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.0-flash"
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    # Supabase (PostgreSQL and REST Client)
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
 
     # Graph Database
     NEO4J_URI: str = "bolt://localhost:7687"

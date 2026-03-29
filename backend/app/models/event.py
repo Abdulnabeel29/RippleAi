@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 
 from app.models.base import Base
 
@@ -39,7 +40,12 @@ class Event(Base):
 
     __tablename__ = "events"
 
-    id = Column(String(36), primary_key=True, default=generate_uuid)
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True
+    )
     event_type = Column(String(100), nullable=False, index=True)
     location = Column(String(255), nullable=True, index=True)
     country = Column(String(100), nullable=True)
@@ -47,18 +53,25 @@ class Event(Base):
     severity = Column(String(50), nullable=False, index=True)
     confidence_score = Column(Float, nullable=True)
     summary = Column(Text, nullable=True)
+    
+    # AI Enrichment: Decision Intelligence and Simulation Narrative
+    # 'strategic_brief' stores the JSON narrative, timeline, and actions.
+    strategic_brief = Column(Text, nullable=True)
+    # 'simulation_results' stores the JSON list of impacted facilities/sectors from ripple simulation.
+    simulation_results = Column(Text, nullable=True)
+    
     source_article_id = Column(
-        String(36),
+        UUID(as_uuid=True),
         ForeignKey("news_articles.id", ondelete="SET NULL"),
         nullable=True,
     )
     detected_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
         index=True,
     )
-    event_time = Column(DateTime, nullable=True)
+    event_time = Column(DateTime(timezone=True), nullable=True)
     status = Column(String(50), nullable=False, default="active")
 
     def __repr__(self) -> str:

@@ -17,6 +17,7 @@ class PredictionItem(BaseModel):
     explanation: str = Field(default="Reasoning pending...")
     why: str = Field(default="Analyzing risk factors...")
     how: str = Field(default="Modeling operational impact...")
+    strategic_brief: str | None = Field(default=None)
     is_synthesized: bool = False
 
 class PredictionEnrichmentRequest(BaseModel):

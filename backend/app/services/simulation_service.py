@@ -234,10 +234,10 @@ class SimulationService:
             logger.warning("Gemini Enrichment failed: %s. Attempting Groq fallback...", str(e))
             # ── Groq Fallback ──────────
             try:
-                from groq import Groq
+                from groq import AsyncGroq
                 if settings.GROQ_API_KEY:
-                    client = Groq(api_key=settings.GROQ_API_KEY)
-                    chat_completion = client.chat.completions.create(
+                    client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+                    chat_completion = await client.chat.completions.create(
                         messages=[{
                             "role": "user",
                             "content": prompt + "\nReturn ONLY valid JSON."

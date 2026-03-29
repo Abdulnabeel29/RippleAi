@@ -5,6 +5,7 @@ Covers AI detection output validation, API response serialization,
 and query filter parameters.
 """
 
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -55,7 +56,7 @@ class EventResponse(BaseModel):
         status: Event lifecycle status.
     """
 
-    id: str
+    id: uuid.UUID
     event_type: str
     location: Optional[str] = None
     country: Optional[str] = None
@@ -63,7 +64,7 @@ class EventResponse(BaseModel):
     severity: str
     confidence_score: Optional[float] = None
     summary: Optional[str] = None
-    source_article_id: Optional[str] = None
+    source_article_id: Optional[uuid.UUID] = None
     detected_at: datetime
     status: str
 

@@ -11,7 +11,9 @@ from typing import List
 from sqlalchemy import func, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datetime import datetime, timedelta
+import json
+import asyncio
+from datetime import datetime, timedelta, timezone
 from app.models.event import Event
 from app.models.prediction import Prediction
 from app.schemas.prediction import PredictionItem
@@ -52,7 +54,7 @@ class PredictionService:
         """
         try:
             # 30-day time window
-            window_start = datetime.utcnow() - timedelta(days=30)
+            window_start = datetime.now(timezone.utc) - timedelta(days=30)
             
             # Query events within the 30-day window
             query = select(Event).where(Event.detected_at >= window_start)
@@ -64,7 +66,7 @@ class PredictionService:
 
             # Aggregate weights by (event_type, location)
             # weight = 1 / (1 + days_since_event)
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             topology_weights = {}
             total_global_weight = 0.0
 
@@ -95,6 +97,21 @@ class PredictionService:
                 topology_weights[key]["weight_sum"] += weight
                 total_global_weight += weight
 
+            # Load existing predictions to preserve cached AI data
+            existing_preds_query = select(Prediction)
+            existing_results = await db.execute(existing_preds_query)
+            existing_predictions = existing_results.scalars().all()
+            
+            cache_map = {}
+            for p in existing_predictions:
+                ckey = (p.event_type.lower().strip(), p.location.lower().strip())
+                cache_map[ckey] = {
+                    "explanation": p.explanation,
+                    "why": p.why,
+                    "how": p.how,
+                    "strategic_brief": getattr(p, "strategic_brief", None)
+                }
+
             # Clear old predictions
             await db.execute(delete(Prediction))
 
@@ -114,14 +131,55 @@ class PredictionService:
                 base_delay = _get_base_delay(data["event_type"])
                 expected_delay_days = max(1, int(base_delay * probability) + 1)
 
-                # Generate RAG Explanation
-                prediction_dict = {
-                    "event_type": data["event_type"],
-                    "location": data["location"],
-                    "probability": round(probability, 3),
-                    "risk_level": risk_level
-                }
-                explanation = await rag_service.generate_explanation(prediction_dict, db)
+                cached_entry = cache_map.get(key)
+                if cached_entry and cached_entry.get("explanation"):
+                    # Reuse cached intelligence completely
+                    explanation = cached_entry["explanation"]
+                    why = cached_entry["why"]
+                    how = cached_entry["how"]
+                    strategic_brief = cached_entry.get("strategic_brief")
+                else:
+                    # Generate RAG Explanation for unseen disruption clusters only
+                    prediction_dict = {
+                        "event_type": data["event_type"],
+                        "location": data["location"],
+                        "probability": round(probability, 3),
+                        "risk_level": risk_level
+                    }
+                    explanation = await rag_service.generate_explanation(prediction_dict, db)
+                    
+                    # --- NEW: ENRICH ON CREATION ---
+                    try:
+                        logger.info("Enriching new prediction: %s in %s", data['event_type'], data['location'])
+                        # We use a minimal enrichment call here to populate why/how
+                        from app.schemas.prediction import PredictionEnrichmentRequest
+                        enrich_req = PredictionEnrichmentRequest(
+                            event_type=data["event_type"],
+                            location=data["location"],
+                            risk_level=risk_level
+                        )
+                        # Avoid recursive DB commit by just getting the data
+                        enrich_res = await self.enrich_prediction_intelligence(enrich_req, db)
+                        why = enrich_res.why
+                        how = enrich_res.how
+                        
+                        # Also generate decision brief for this potential event
+                        brief_res = await rag_service.generate_decision_intelligence(
+                            event_type=data["event_type"],
+                            location=data["location"],
+                            severity=risk_level.lower(),
+                            db=db
+                        )
+                        strategic_brief = json.dumps(brief_res)
+                        
+                        # Wait 2s to respect rate limits
+                        await asyncio.sleep(2)
+                    except Exception as e_enrich:
+                        logger.warning("Initial enrichment failed for %s: %s", data['location'], e_enrich)
+                        why = None
+                        how = None
+                        strategic_brief = None
+                    # ------------------------------
 
                 db.add(Prediction(
                     event_type=data["event_type"],
@@ -129,7 +187,10 @@ class PredictionService:
                     probability=round(probability, 3),
                     expected_delay_days=expected_delay_days,
                     risk_level=risk_level,
-                    explanation=explanation
+                    explanation=explanation,
+                    why=why,
+                    how=how,
+                    strategic_brief=strategic_brief
                 ))
             
             await db.commit()
@@ -157,6 +218,7 @@ class PredictionService:
                     explanation=p.explanation,
                     why=p.why or "Analyzing risk factors...",
                     how=p.how or "Modeling operational impact...",
+                    strategic_brief=getattr(p, "strategic_brief", None),
                     is_synthesized=bool(p.why and p.how)
                 )
                 for p in db_predictions
@@ -172,7 +234,6 @@ class PredictionService:
         """
         Synthesize targeted AI reasoning for a prediction using dual-phase LLM approach.
         """
-        import json
         import google.generativeai as genai
         from app.core.config import get_settings
         from app.schemas.prediction import PredictionEnrichmentRequest, PredictionItem

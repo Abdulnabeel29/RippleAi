@@ -33,5 +33,6 @@ class Prediction(Base):
     explanation = Column(Text, nullable=False)
     why = Column(Text, nullable=True)
     how = Column(Text, nullable=True)
+    strategic_brief = Column(Text, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
