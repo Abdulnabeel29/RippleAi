@@ -14,9 +14,14 @@ const GlobalMapPage = () => {
     ? events.filter(e => e.location === selectedLocation)
     : events;
 
-  const handleLocationSelect = (loc) => {
-    setSelectedLocation(loc);
-    if (selectedEvent && selectedEvent.location !== loc) setSelectedEvent(null);
+  const handleEventSelect = (evt) => {
+    if (!evt) {
+      setSelectedLocation(null);
+      setSelectedEvent(null);
+      return;
+    }
+    setSelectedLocation(evt.location);
+    setSelectedEvent(evt);
   };
 
   return (
@@ -41,7 +46,7 @@ const GlobalMapPage = () => {
       <div className="mx-8 md:mx-10 h-[calc(100vh-320px)] min-h-[500px] rounded-sm overflow-hidden ring-1 ring-white/5">
         <GlobalRiskMap
           events={events}
-          onLocationSelect={handleLocationSelect}
+          onLocationSelect={handleEventSelect}
           selectedLocation={selectedLocation}
         />
       </div>
@@ -62,7 +67,10 @@ const GlobalMapPage = () => {
         event={selectedEvent}
         simulationData={simulationData}
         impactData={impactData}
-        onClose={() => setSelectedEvent(null)}
+        onClose={() => {
+          setSelectedEvent(null);
+          setSelectedLocation(null);
+        }}
       />
     </div>
   );

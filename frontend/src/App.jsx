@@ -5,76 +5,107 @@ import DashboardPage from './pages/DashboardPage';
 import GlobalMapPage from './pages/GlobalMapPage';
 import NetworkGraphPage from './pages/NetworkGraphPage';
 import RiskAnalyticsPage from './pages/RiskAnalyticsPage';
+import PredictionsPage from './pages/PredictionsPage';
 import { useIntelligenceData } from './hooks/useData';
+
+import { LayoutDashboard, Map, Activity, BarChart3, Settings, FileText, Globe, ShieldAlert, Waves, Menu, BrainCircuit } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 function App() {
   const { events } = useIntelligenceData();
+  const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
 
   const sidebar = (
-    <div className="flex flex-col h-full">
-      <nav className="flex-1 space-y-1">
-        <NavLink 
-          to="/" 
-          end
-          className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all duration-200 cursor-pointer ${isActive ? 'text-white font-semibold border-r-2 border-white bg-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+    <div className={`flex flex-col h-full overflow-hidden ${isSidebarOpen ? 'px-6' : 'px-2'}`}>
+      <div className={`py-6 mb-4 flex items-center ${isSidebarOpen ? 'justify-between px-2' : 'flex-col gap-4 justify-center'}`}>
+        <div className="flex items-center gap-4 overflow-hidden shrink-0">
+          <div className="w-10 h-10 bg-white flex items-center justify-center rounded-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] shrink-0">
+            <Waves className="text-[#05080f] w-6 h-6" strokeWidth={2.5} />
+          </div>
+          {isSidebarOpen && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h1 className="text-xl font-black tracking-tighter text-white m-0 leading-none">RippleAi</h1>
+              <p className="mono text-[7px] uppercase tracking-[0.3em] text-slate-500 font-bold m-0 mt-1">Intel Core</p>
+            </motion.div>
+          )}
+        </div>
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-all active:scale-90"
         >
-          <span className="material-symbols-outlined text-[20px]">dashboard</span>
-          <span className="font-['Inter'] font-medium text-sm tracking-tight">Overview</span>
-        </NavLink>
-        <NavLink 
-          to="/map" 
-          className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all duration-200 cursor-pointer ${isActive ? 'text-white font-semibold border-r-2 border-white bg-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-        >
-          <span className="material-symbols-outlined text-[20px]">map</span>
-          <span className="font-['Inter'] font-medium text-sm tracking-tight">Global Risk Map</span>
-        </NavLink>
-        <NavLink 
-          to="/graph" 
-          className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all duration-200 cursor-pointer ${isActive ? 'text-white font-semibold border-r-2 border-white bg-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-        >
-          <span className="material-symbols-outlined text-[20px]">hub</span>
-          <span className="font-['Inter'] font-medium text-sm tracking-tight">Network Graph</span>
-        </NavLink>
-        <NavLink 
-          to="/analytics" 
-          className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all duration-200 cursor-pointer ${isActive ? 'text-white font-semibold border-r-2 border-white bg-white/5' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-        >
-          <span className="material-symbols-outlined text-[20px]">analytics</span>
-          <span className="font-['Inter'] font-medium text-sm tracking-tight">Risk Analytics</span>
-        </NavLink>
+          <Menu size={18} />
+        </button>
+      </div>
+
+      <nav className="flex-1 space-y-2 mt-2">
+        {isSidebarOpen && <div className="mono text-[9px] font-black tracking-[0.3em] text-slate-600 mb-4 px-3">NAVIGATION</div>}
+
+        
+        {[
+          { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
+          { to: "/map", label: "Global Risk Map", icon: Map },
+          { to: "/graph", label: "Network Graph", icon: Globe },
+          { to: "/predictions", label: "Predictive Analytics", icon: BrainCircuit },
+          { to: "/analytics", label: "Risk Matrix", icon: BarChart3 },
+        ].map((item) => (
+          <NavLink 
+            key={item.to}
+            to={item.to} 
+            end={item.end}
+            className={({ isActive }) => `
+              group flex items-center ${isSidebarOpen ? 'gap-4 px-4' : 'justify-center'} py-3 rounded-lg transition-all duration-300 relative overflow-hidden
+              ${isActive 
+                ? 'bg-white/5 text-white border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.3)]' 
+                : 'text-slate-500 hover:text-white hover:bg-white/[0.02] border border-transparent'}
+            `}
+          >
+            {({ isActive }) => (
+              <>
+
+                <item.icon size={18} strokeWidth={isActive ? 2.5 : 2} className={`${isActive ? 'text-primary' : 'group-hover:text-primary transition-colors'} shrink-0`} />
+                {isSidebarOpen && (
+                  <motion.span initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className={`text-sm font-bold tracking-tight ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white transition-colors'}`}>
+                    {item.label}
+                  </motion.span>
+                )}
+                {/* Active Indicator Glow Bar */}
+                <div 
+                  className={`
+                    absolute left-0 w-1 h-1/2 bg-primary rounded-r-full transition-all duration-500
+                    ${isActive ? 'opacity-100 shadow-[0_0_15px_#3b82f6]' : 'opacity-0'}
+                  `}
+                />
+              </>
+            )}
+          </NavLink>
+        ))}
       </nav>
 
-      <div className="mt-8 flex flex-col gap-5 pt-6 border-t border-white/5">
-        <div className="flex flex-col gap-1">
-          <h4 className="mono text-[10px] m-0 text-slate-500 uppercase tracking-widest">TOTAL SCENARIOS</h4>
-          <div className="text-2xl font-bold text-white leading-none">{events?.length || 0}</div>
-        </div>
-        <div className="flex flex-col gap-1">
-          <h4 className="mono text-[10px] m-0 text-slate-500 uppercase tracking-widest">CRITICAL RISKS</h4>
-          <div className="text-2xl font-bold text-danger leading-none">
-            {events?.filter(e => e.severity?.toLowerCase() === 'high' || e.severity?.toLowerCase() === 'critical').length || 0}
-          </div>
-        </div>
-      </div>
-      
-      <div className="mt-auto pt-6 border-t border-white/5 space-y-1">
-        <a className="flex items-center gap-3 px-3 py-2.5 rounded-sm text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer">
-          <span className="material-symbols-outlined text-[20px]">settings</span>
-          <span className="font-['Inter'] font-medium text-sm tracking-tight">Settings</span>
+
+      <div className="mt-auto pt-8 border-t border-white/5 space-y-2">
+        <a className={`group flex items-center ${isSidebarOpen ? 'gap-4 px-4' : 'justify-center'} py-3 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.02] transition-all duration-300 cursor-pointer border border-transparent`}>
+          <Settings size={18} className="group-hover:rotate-45 transition-transform shrink-0" />
+          {isSidebarOpen && (
+            <motion.span initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="text-sm font-bold tracking-tight">System Configuration</motion.span>
+          )}
         </a>
-        <button className="w-full mt-4 bg-primary text-black font-bold py-2.5 rounded-sm text-xs uppercase tracking-widest hover:bg-white/90 active:scale-95 transition-all">
-            Generate Report
+        <button className={`w-full mt-4 bg-white text-[#05080f] font-black ${isSidebarOpen ? 'py-3.5 px-4' : 'py-3.5 px-0 justify-center'} rounded-lg text-[10px] uppercase tracking-[0.2em] hover:bg-primary hover:text-white active:scale-95 transition-all shadow-[0_10px_30px_rgba(255,255,255,0.1)] flex items-center gap-2 border border-white/10 group overflow-hidden`}>
+            <FileText size={18} className="group-hover:scale-110 transition-transform shrink-0" />
+            {isSidebarOpen && (
+              <motion.span initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>Generate Brief</motion.span>
+            )}
         </button>
       </div>
     </div>
   );
 
   return (
-    <DashboardLayout sidebar={sidebar}>
+    <DashboardLayout sidebar={sidebar} isSidebarOpen={isSidebarOpen}>
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/map" element={<GlobalMapPage />} />
         <Route path="/graph" element={<NetworkGraphPage />} />
+        <Route path="/predictions" element={<PredictionsPage />} />
         <Route path="/analytics" element={<RiskAnalyticsPage />} />
       </Routes>
     </DashboardLayout>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Activity, Network, Layers, Share2, AlertTriangle, ShieldCheck, ShieldAlert, ShieldOff, Map as MapIcon, ChevronRight, Target, Zap, Ship, Factory, Plane, Box, Warehouse, FlaskConical, Store, Brain } from 'lucide-react';
+import { Activity, Network, Layers, Share2, AlertTriangle, ShieldCheck, ShieldAlert, ShieldOff, Map as MapIcon, ChevronRight, Target, Zap, Ship, Factory, Plane, Box, Warehouse, FlaskConical, Store, Brain, Radio, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Map, { Marker, Source, Layer, NavigationControl } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -13,18 +13,20 @@ import {
 import DecisionPanel from '../Intelligence/DecisionPanel';
 import { resolveCoords, projectCoords } from '../../utils/geoUtils';
 import * as api from '../../services/api';
+import { checkWebGLSupport } from '../../utils/webglUtils';
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
 
 // Confidence score tier classification
 const getConfidenceTier = (score) => {
-  if (score >= 0.8) return { label: 'High Credibility', sublabel: 'Corroborated by multiple sources', color: 'text-green-400', border: 'border-green-500/40', bg: 'bg-green-500/10', Icon: ShieldCheck };
+  if (score >= 0.8) return { label: 'High Credibility', sublabel: 'Corroborated by multiple sources', color: 'text-success', border: 'border-success/40', bg: 'bg-success/10', Icon: ShieldCheck };
   if (score >= 0.6) return { label: 'Moderate Signal', sublabel: 'Partially verified reporting', color: 'text-warning', border: 'border-warning/40', bg: 'bg-warning/10', Icon: ShieldAlert };
   return { label: 'Unverified Signal', sublabel: 'Single or unconfirmed source', color: 'text-danger', border: 'border-danger/40', bg: 'bg-danger/10', Icon: ShieldOff };
 };
 
 const ImpactSimulationView = ({ event, simulationData, onClose }) => {
   const [activeDepth, setActiveDepth] = useState(0);
+  const isWebGLSupported = useMemo(() => checkWebGLSupport(), []);
   const [isLegendExpanded, setIsLegendExpanded] = useState(false);
   const [enrichedData, setEnrichedData] = useState({});
   const [enrichingTargets, setEnrichingTargets] = useState(new Set());
@@ -37,18 +39,15 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
   const mappedNodes = useMemo(() => {
     if (!simulationData) return [];
 
-    // Use actual epicenter if possible, otherwise use the neutral center for global events
     return simulationData.map((node, i) => {
-      // 1. Attempt to resolve high-fidelity real-world coordinate first
       const realCoord = resolveCoords(node.target);
       if (realCoord) {
         return { ...node, ...realCoord };
       }
 
-      // 2. Fallback to stable distributed projection if unknown
       const anchor = epicenter || NEUTRAL_CENTER;
       const baseDist = node.depth === 1 ? 400 : node.depth === 2 ? 1500 : 4500;
-      const jitter = (i * 73) % 400; 
+      const jitter = (i * 73) % 400;
       const distance = baseDist + jitter;
       const angle = (i * 137.5) + (node.depth * 45);
 
@@ -70,12 +69,12 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
     let current = 0;
     const interval = setInterval(() => {
       if (current < maxDepth) {
-        current += 1;
+        current += 0.2;
         setActiveDepth(current);
       } else {
         clearInterval(interval);
       }
-    }, 1000);
+    }, 150);
 
     return () => clearInterval(interval);
   }, [simulationData, event]);
@@ -85,27 +84,23 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
   const tier2Count = visibleNodes.filter(d => d.depth === 2).length;
   const tier3Count = visibleNodes.filter(d => d.depth === 3).length;
 
-  // Sequential Enrichment Logic
   useEffect(() => {
     if (!event?.id || !visibleNodes.length) return;
 
-    const nodesToEnrich = visibleNodes.filter(n => 
-      !n.is_synthesized && 
-      !enrichedData[n.target] && 
+    const nodesToEnrich = visibleNodes.filter(n =>
+      !n.is_synthesized &&
+      !enrichedData[n.target] &&
       !enrichingTargets.has(n.target)
     );
 
     if (nodesToEnrich.length === 0) return;
 
-    // Process one node at a time to avoid rate limits and provide better "streaming" feel
     const enrichNext = async () => {
       const node = nodesToEnrich[0];
       setEnrichingTargets(prev => new Set(prev).add(node.target));
 
       try {
-        // Sequential throttle to stay within provider (Gemini/Groq) Free Tier RPM limits
         await new Promise(r => setTimeout(r, 2000));
-        
         const result = await api.enrichSimulationNode(event.id, node);
         setEnrichedData(prev => ({
           ...prev,
@@ -129,7 +124,6 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
   const confidencePct = rawConfidence !== null ? (rawConfidence * 100).toFixed(0) : '—';
   const confidenceTier = rawConfidence !== null ? getConfidenceTier(rawConfidence) : null;
 
-  // GeoJSON for Ripple Lines
   const lineFeatures = useMemo(() => {
     const anchor = epicenter || NEUTRAL_CENTER;
     if (!anchor) return { type: 'FeatureCollection', features: [] };
@@ -159,261 +153,205 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
     return map[type] || Activity;
   };
 
+  const isHigh = event?.severity?.toLowerCase() === 'high' || event?.severity?.toLowerCase() === 'critical';
+  const isMed = event?.severity?.toLowerCase() === 'medium';
+
+  const severityColor = isHigh ? 'text-danger' : isMed ? 'text-warning' : 'text-primary';
+  const severityPipe = isHigh ? 'status-pipe-red' : isMed ? 'status-pipe-amber' : 'status-pipe-blue';
+
   return (
     <Dialog open={!!event} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[1500px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-background border-primary/20 shadow-[0_10px_40px_rgba(0,0,0,0.8)]">
-        {/* ── Header ── */}
-        <div className="flex justify-between items-center px-8 py-4 border-b border-primary/20 bg-card/50 backdrop-blur-md z-50 gap-6">
-          <div className="min-w-0">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-lg tracking-wide text-white font-semibold uppercase truncate">
-                <Activity className="text-danger shrink-0" size={20} />
-                Ripple Simulation: {event?.event_type}
+      <DialogContent className="max-w-[1500px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden glass-panel border-white/10 shadow-[0_0_80px_rgba(0,0,0,0.8)] [&>button]:hidden">
+        <div className={`absolute top-0 left-0 right-0 h-1 z-50 ${severityPipe}`} />
+
+        {/* ── HUD Header ── */}
+        <div className="flex justify-between items-center px-8 py-5 border-b border-white/10 bg-white/[0.02] backdrop-blur-md z-40 gap-6">
+          <div className="min-w-0 flex items-center gap-4">
+            <div className={`p-2 rounded-lg bg-white/[0.05] border border-white/10 shadow-inner`}>
+              <Radio size={24} className={`${severityColor} animate-pulse`} />
+            </div>
+            <div className="flex flex-col">
+              <DialogTitle className="text-2xl font-black text-white tracking-tighter uppercase italic leading-none m-0">
+                Ripple Simulation
               </DialogTitle>
-              <DialogDescription className="text-muted-foreground mt-0.5 text-xs truncate">
-                Epicenter: <span className="text-white font-medium">{event?.location}</span>
-                {event?.industry && <> · Industry: <span className="text-primary font-medium">{event.industry}</span></>}
-                {event?.severity && <> · Severity: <span className={`font-bold uppercase ${event.severity === 'critical' ? 'text-danger' : event.severity === 'high' ? 'text-warning' : 'text-primary'}`}>{event.severity}</span></>}
+              <DialogDescription className="sr-only">
+                Interactive strategic simulation of global supply chain disruptions originating from {event?.location}.
               </DialogDescription>
-            </DialogHeader>
+              <div className="flex items-center gap-3 mt-1.5 opacity-80">
+                <span className="text-[10px] mono text-white/50 uppercase tracking-[0.2em]">{event?.event_type?.replace(/_/g, ' ')}</span>
+                <span className="w-1 h-1 rounded-full bg-white/20" />
+                <span className="text-[10px] mono text-white/70 uppercase tracking-widest"><MapIcon size={10} className="inline mr-1 -mt-0.5 text-white/40" />{event?.location}</span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            {/* Cascade Tier Explanation */}
-            <div className="flex items-center gap-2.5 bg-muted/20 border border-muted/30 px-4 py-2 rounded-lg relative group/tier cursor-help">
-              <Layers size={18} className="text-primary" />
-              <div className="flex flex-col text-left">
-                <span className="text-xl font-bold text-white leading-none">{activeDepth} / 3</span>
-                <span className="text-[9px] font-bold tracking-widest text-muted-foreground mt-0.5 whitespace-nowrap">CASCADE TIER</span>
+          <div className="flex items-center gap-4 shrink-0">
+            {/* Cascade Tier HUD Element */}
+            <div className="flex items-center gap-3 bg-white/[0.03] border border-white/10 px-4 py-2 rounded-xl relative group/tier cursor-help hover:bg-white/[0.05] transition-colors">
+              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
+                <Layers size={14} className="text-primary" />
               </div>
-              <div className="absolute top-full left-0 mt-2 w-[240px] bg-card border border-white/10 p-3 rounded-xl shadow-2xl opacity-0 group-hover/tier:opacity-100 pointer-events-none transition-all z-[100] backdrop-blur-xl">
-                <h4 className="text-[10px] font-bold text-white uppercase tracking-widest mb-1 pb-1 border-b border-white/5">Network Depth Explanation</h4>
-                <p className="text-[9px] text-muted-foreground leading-relaxed italic">
-                  The "Ripple" propagates through tiers. T1=Direct local impact, T2=Regional distribution delay, T3=Global downstream exposure.
-                </p>
+              <div className="flex flex-col text-left">
+                <span className="text-xl font-black text-white leading-none tracking-tighter">{Math.floor(activeDepth)}<span className="text-white/30 text-sm">/3</span></span>
+                <span className="text-[8px] mono font-bold tracking-[0.2em] text-white/40 mt-1 uppercase whitespace-nowrap">Tier Depth</span>
               </div>
             </div>
 
-            {/* Vulnerable Nodes Explanation */}
-            <div className="flex items-center gap-2.5 bg-muted/20 border border-muted/30 px-4 py-2 rounded-lg relative group/nodes cursor-help">
-              <Network size={18} className="text-primary" />
-              <div className="flex flex-col text-left">
-                <span className="text-xl font-bold text-white leading-none">{visibleNodes.length}</span>
-                <span className="text-[9px] font-bold tracking-widest text-muted-foreground mt-0.5 whitespace-nowrap">VULNERABLE NODES</span>
+            {/* Vulnerable Nodes HUD Element */}
+            <div className="flex items-center gap-3 bg-white/[0.03] border border-white/10 px-4 py-2 rounded-xl relative group/nodes cursor-help hover:bg-white/[0.05] transition-colors">
+              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 group-hover:bg-primary/20 transition-colors">
+                <Network size={14} className="text-primary" />
               </div>
-              <div className="absolute top-full left-0 mt-2 w-[240px] bg-card border border-white/10 p-3 rounded-xl shadow-2xl opacity-0 group-hover/nodes:opacity-100 pointer-events-none transition-all z-[100] backdrop-blur-xl">
-                <h4 className="text-[10px] font-bold text-white uppercase tracking-widest mb-1 pb-1 border-b border-white/5">Impact Scope Explanation</h4>
-                <p className="text-[9px] text-muted-foreground leading-relaxed italic">
-                  These are the specific facilities, factories, ports, and transit hubs identified by AI as being in the direct path of the ripple contagion.
-                </p>
+              <div className="flex flex-col text-left">
+                <span className="text-xl font-black text-white leading-none tracking-tighter">{visibleNodes.length}</span>
+                <span className="text-[8px] mono font-bold tracking-[0.2em] text-white/40 mt-1 uppercase whitespace-nowrap">Affected Nodes</span>
               </div>
             </div>
+
             {confidenceTier && (
-              <div className={`flex items-center gap-2.5 border px-4 py-2 rounded-lg relative group/credibility cursor-help transition-all ${confidenceTier.border} ${confidenceTier.bg}`}>
-                <confidenceTier.Icon size={18} className={confidenceTier.color} />
-                <div className="flex flex-col text-left">
-                  <span className={`text-xl font-bold leading-none ${confidenceTier.color}`}>{confidencePct}%</span>
-                  <span className="text-[9px] font-bold tracking-widest text-muted-foreground mt-0.5 uppercase flex items-center gap-1">
-                    Confidence <AlertTriangle size={8} />
-                  </span>
+              <div className={`flex items-center gap-3 px-4 py-2 rounded-xl relative group/credibility cursor-help transition-all ${confidenceTier.border} ${confidenceTier.bg} border`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center border border-current shadow-inner ${confidenceTier.color} bg-white/5`}>
+                  <confidenceTier.Icon size={14} className="text-current" />
                 </div>
-
-                {/* Calculation Logic Tooltip */}
-                <div className="absolute top-full right-0 mt-2 w-[280px] bg-card border border-white/10 p-4 rounded-xl shadow-2xl opacity-0 group-hover/credibility:opacity-100 pointer-events-none transition-all z-[100] backdrop-blur-xl">
-                  <h4 className="text-[10px] font-bold text-white uppercase tracking-widest mb-2 flex items-center gap-2">
-                    <ShieldCheck size={12} className="text-primary" /> Source Credibility Logic
-                  </h4>
-                  <p className="text-[9px] text-muted-foreground leading-relaxed mb-3">
-                    Calculated by the AI Intelligence Layer using weighted Bayesian inference across three key vectors:
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex flex-col gap-0.5 border-l-2 border-primary/30 pl-2">
-                      <span className="text-[9px] font-bold text-white uppercase">1. Source Authority</span>
-                      <p className="text-[8px] text-muted-foreground">Historical reliability of the news publisher or agency.</p>
-                    </div>
-                    <div className="flex flex-col gap-0.5 border-l-2 border-primary/30 pl-2">
-                      <span className="text-[9px] font-bold text-white uppercase">2. Linguistic Certainty</span>
-                      <p className="text-[8px] text-muted-foreground">Evaluation of "Confirmed" vs. "Speculative" language in the report.</p>
-                    </div>
-                    <div className="flex flex-col gap-0.5 border-l-2 border-primary/30 pl-2">
-                      <span className="text-[9px] font-bold text-white uppercase">3. Data Integrity</span>
-                      <p className="text-[8px] text-muted-foreground">Completeness of extracted event attributes (Type, Core Location, Industry).</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-white/5 flex justify-between items-center text-[8px] font-bold uppercase tracking-tighter">
-                    <span className="text-green-400">High: 80%+</span>
-                    <span className="text-warning">Mod: 60%+</span>
-                    <span className="text-danger">Low: &lt;60%</span>
-                  </div>
+                <div className="flex flex-col text-left">
+                  <span className={`text-xl font-black leading-none tracking-tighter ${confidenceTier.color}`}>{confidencePct}%</span>
+                  <span className={`text-[8px] mono font-bold tracking-[0.2em] mt-1 uppercase whitespace-nowrap opacity-60 flex items-center gap-1 ${confidenceTier.color}`}>
+                    Credibility <AlertTriangle size={8} />
+                  </span>
                 </div>
               </div>
             )}
+
+            {/* HUD Close Interface */}
+            <button 
+              onClick={onClose}
+              className="p-2.5 rounded-lg bg-white/[0.05] border border-white/10 hover:bg-white/10 transition-all group/close shadow-inner active:scale-95 ml-2"
+              title="Terminate Simulation"
+            >
+              <X size={20} className="text-white/40 group-hover:text-white transition-colors" />
+            </button>
           </div>
         </div>
 
         {/* ── 3-Column Body ── */}
-        <div className="flex-1 relative overflow-hidden flex w-full h-full min-h-0">
+        <div className="flex-1 relative overflow-hidden flex w-full h-full min-h-0 bg-[#05080f]/80">
 
           {/* LEFT — Structural Impact List */}
-          <div className="w-[320px] shrink-0 bg-background/80 border-r border-primary/20 z-30 flex flex-col backdrop-blur-md">
-            <div className="px-5 py-4 border-b border-primary/20 bg-muted/10 relative group/info">
-              <h3 className="text-[10px] font-bold tracking-[0.2em] text-primary uppercase flex items-center gap-2">
-                <AlertTriangle size={12} className="text-warning" /> Structural Impact List
+          <div className="w-[420px] shrink-0 bg-white/[0.02] border-r border-white/10 z-30 flex flex-col backdrop-blur-3xl shadow-[5px_0_30px_rgba(0,0,0,0.5)]">
+            <div className="px-6 py-5 border-b border-white/10 bg-white/[0.02] relative group/info flex justify-between items-center">
+              <h3 className="text-[10px] font-black mono tracking-[0.2em] text-white/60 uppercase flex items-center gap-2">
+                <AlertTriangle size={12} className={severityColor} /> Direct Impact Matrix
               </h3>
-              <div className="absolute top-4 right-5 text-muted-foreground hover:text-primary transition-colors cursor-help">
-                <AlertTriangle size={12} />
-                <div className="absolute right-0 top-full mt-2 w-[280px] bg-card border border-white/10 p-4 rounded-xl shadow-2xl opacity-0 group-hover/info:opacity-100 pointer-events-none transition-opacity z-[100] backdrop-blur-xl">
-                  <h4 className="text-[10px] font-bold text-white uppercase tracking-widest mb-2 border-b border-white/5 pb-1">Ripple Intelligence Guide</h4>
-                  
-                  <div className="flex flex-col gap-3 mb-4">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-[9px] font-bold text-danger uppercase flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-danger" /> T1: Direct Epicenter
-                      </span>
-                      <p className="text-[8px] text-muted-foreground leading-relaxed">Immediate operational stoppage at the disaster site. High probability of complete failure.</p>
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-[9px] font-bold text-warning uppercase flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-warning" /> T2: Cascading Regional
-                      </span>
-                      <p className="text-[8px] text-muted-foreground leading-relaxed">Indirect delays for first-tier suppliers and local logistics hubs relying on the epicenter.</p>
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-[9px] font-bold text-primary uppercase flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-primary" /> T3: Downstream Global
-                      </span>
-                      <p className="text-[8px] text-muted-foreground leading-relaxed">Tertiary risk to distal markets and global retailers as mid-stream inventory depletes.</p>
-                    </div>
-                  </div>
-
-                  <p className="text-[10px] font-bold text-white uppercase tracking-widest mb-1">Disruption Probability</p>
-                  <p className="text-[9px] text-muted-foreground leading-relaxed italic">
-                    The percentage indicates the statistical likelihood of operational failure at this node, calculated by compounding epicenter severity with network proximity.
-                  </p>
-                </div>
-              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+
+            <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4 custom-scrollbar">
               <AnimatePresence>
                 {simulationData ? (
                   [...simulationData].sort((a, b) => b.impact - a.impact).map((node, i) => {
                     const FacilityIcon = getFacilityIcon(node.facility_type);
+                    const isT1 = node.depth === 1;
+                    const isT2 = node.depth === 2;
+                    const pipeClass = isT1 ? 'status-pipe-red' : isT2 ? 'status-pipe-amber' : 'status-pipe-blue';
+                    const colorClass = isT1 ? 'text-danger' : isT2 ? 'text-warning' : 'text-primary';
+                    const bgClass = isT1 ? 'bg-danger/10 border-danger/20' : isT2 ? 'bg-warning/10 border-warning/20' : 'bg-primary/10 border-primary/20';
+
                     return (
                       <motion.div
-                        key={node.target}
-                        initial={{ opacity: 0, x: -16 }}
+                        key={`${node.target}-${i}`}
+                        initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
-                        className="flex flex-col gap-1.5 p-3 bg-card/60 border border-white/5 rounded-md"
+                        className="flex flex-col gap-2 p-4 bg-white/[0.03] border border-white/5 rounded-xl relative overflow-hidden group hover:bg-white/[0.05] transition-all min-h-fit"
                       >
-                        <div className="flex justify-between items-start gap-1">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <FacilityIcon size={12} className="text-primary shrink-0" />
-                            <span className="text-xs font-bold text-white leading-tight truncate font-mono uppercase tracking-tighter">{node.target}</span>
+                        <div className={`absolute left-0 top-0 bottom-0 w-1 ${pipeClass} z-10 opacity-70 group-hover:opacity-100 transition-opacity`} />
+
+                        <div className="flex justify-between items-start gap-3 relative z-20">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 bg-white/5 rounded-md border border-white/10">
+                              <FacilityIcon size={14} className={colorClass} />
+                            </div>
+                            <span className="text-sm font-black text-white leading-tight uppercase tracking-tighter truncate">{node.target}</span>
                           </div>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${node.depth === 1 ? 'border-danger/50 text-danger bg-danger/10' : node.depth === 2 ? 'border-warning/50 text-warning bg-warning/10' : 'border-primary/50 text-primary bg-primary/10'}`}>
+                          <span className={`text-[9px] mono font-black px-2 py-0.5 rounded border shrink-0 ${bgClass} ${colorClass} tracking-widest`}>
                             T{node.depth}
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 flex-1 bg-muted/30 rounded-full overflow-hidden relative">
+                        <div className="flex items-center gap-3 relative z-20 my-1">
+                          <div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden p-[1px] border border-white/5">
                             <motion.div
                               initial={{ width: 0 }}
                               animate={{ width: `${(node.impact) * 100}%` }}
-                              className={`h-full rounded-full ${node.depth === 1 ? 'bg-danger' : node.depth === 2 ? 'bg-warning' : 'bg-primary'}`}
+                              className={`h-full rounded-full shadow-[0_0_8px_currentColor] ${colorClass}`}
+                              style={{ backgroundColor: 'currentColor' }}
                             />
                           </div>
-                          <span className="text-[10px] font-mono text-white font-bold w-10 text-right">{((node.impact) * 100).toFixed(0)}%</span>
+                          <span className={`text-[11px] mono font-black w-8 text-right tracking-tighter ${colorClass}`}>{((node.impact) * 100).toFixed(0)}%</span>
                         </div>
 
                         {node.primary_metric && (
-                          <div className="flex items-center justify-between bg-primary/5 border border-primary/10 px-2 py-1 rounded">
-                            <span className="text-[8px] text-muted-foreground uppercase font-bold tracking-tighter">Live Metric</span>
-                            <span className="text-[9px] text-primary font-black uppercase italic">{node.primary_metric}</span>
+                          <div className="flex items-center justify-between bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg relative z-20 mb-1">
+                            <span className="text-[8px] mono text-white/40 uppercase font-black tracking-widest">Live Tracker</span>
+                            <span className="text-[9px] text-white font-black uppercase italic">{node.primary_metric}</span>
                           </div>
                         )}
-                      <div className="flex flex-col gap-2.5 mt-2.5 pt-2.5 border-t border-white/5">
-                        <div className="flex gap-2 relative group/why">
-                          <div className="flex flex-col items-center">
-                            <Target size={12} className="text-danger shrink-0" />
-                            <div className="w-[1px] h-full bg-white/5 my-1" />
-                          </div>
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-0.5">
-                              <span className="text-[7.5px] font-black text-danger uppercase tracking-widest">Risk Vector (WHY)</span>
-                              <div className="flex items-center gap-1 bg-danger/10 border border-danger/20 px-1 rounded-[2px]">
-                                <Brain size={7} className="text-danger animate-pulse" />
-                                <span className="text-[6px] font-bold text-danger uppercase tracking-tighter">Grounded</span>
-                              </div>
-                            </div>
-                            <p className="text-[9px] text-white/90 leading-tight italic font-medium relative overflow-hidden">
-                              {enrichedData[node.target]?.risk_vector || (node.is_synthesized ? node.risk_vector : (
-                                <span className="flex flex-col gap-1">
-                                  <span className="block w-full h-2.5 bg-danger/20 animate-pulse rounded-[2px]" />
-                                  <span className="block w-3/4 h-2.5 bg-danger/20 animate-pulse rounded-[2px]" />
-                                </span>
-                              ))}
-                            </p>
-                          </div>
-                        </div>
 
-                        <div className="flex gap-2 relative group/how">
-                          <Zap size={12} className="text-warning shrink-0" />
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-0.5">
-                              <span className="text-[7.5px] font-black text-warning uppercase tracking-widest">Operational Impact (HOW)</span>
-                              <div className="flex items-center gap-1 bg-warning/10 border border-warning/20 px-1 rounded-[2px]">
-                                <Activity size={7} className="text-warning" />
-                                <span className="text-[6px] font-bold text-warning uppercase tracking-tighter">
-                                  {enrichedData[node.target] ? 'Synthesized' : 'Simulated'}
-                                </span>
-                              </div>
+                        <div className="flex flex-col gap-4 mt-2 pt-4 border-t border-white/5 relative z-20">
+                          {/* WHY: Causality Vector */}
+                          <div className="flex gap-3 relative items-start">
+                            <div className="p-1.5 bg-white/5 rounded border border-white/10 shrink-0 mt-0.5">
+                              <Target size={12} className={colorClass} />
                             </div>
-                            <p className="text-[9px] text-muted-foreground leading-snug font-medium">
-                              {enrichedData[node.target]?.operational_impact || (node.is_synthesized ? node.operational_impact : (
-                                <span className="flex flex-col gap-1">
-                                  <span className="block w-full h-2.5 bg-warning/20 animate-pulse rounded-[2px]" />
-                                  <span className="block w-2/3 h-2.5 bg-warning/20 animate-pulse rounded-[2px]" />
-                                </span>
-                              ))}
-                            </p>
+                            <div className="flex flex-col flex-1 min-w-0 border-l-2 border-white/5 pl-4 ml-1">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className={`text-[8px] font-black ${colorClass} uppercase tracking-widest`}>Risk Vector (WHY)</span>
+                                <div className={`flex items-center gap-1.5 ${bgClass} border px-1.5 py-0.5 rounded-[3px]`}>
+                                  <Brain size={8} className={`${colorClass} ${!enrichedData[node.target] && !node.is_synthesized ? 'animate-pulse' : ''}`} />
+                                  <span className={`text-[7px] font-bold ${colorClass} uppercase tracking-tighter`}>
+                                    {enrichedData[node.target] || node.is_synthesized ? 'Grounded' : 'Synthesizing'}
+                                  </span>
+                                </div>
+                              </div>
+                              <p className={`text-[10.5px] leading-[1.5] italic font-medium m-0 whitespace-normal ${!enrichedData[node.target] && !node.is_synthesized ? 'text-white/40' : 'text-white/80'}`}>
+                                {enrichedData[node.target]?.risk_vector || node.risk_vector}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* HOW: Operational Impact */}
+                          <div className="flex gap-3 relative items-start">
+                            <div className="p-1.5 bg-white/5 rounded border border-white/10 shrink-0 mt-0.5">
+                              <Zap size={12} className={colorClass} />
+                            </div>
+                            <div className="flex flex-col flex-1 min-w-0 border-l-2 border-white/5 pl-4 ml-1">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className={`text-[8px] font-black ${colorClass} uppercase tracking-widest`}>Operational Impact (HOW)</span>
+                                <div className={`flex items-center gap-1.5 ${bgClass} border px-1.5 py-0.5 rounded-[3px]`}>
+                                  <Activity size={8} className={colorClass} />
+                                  <span className={`text-[7px] font-bold ${colorClass} uppercase tracking-tighter`}>
+                                    {enrichedData[node.target] || node.is_synthesized ? 'Synthesized' : 'Simulating'}
+                                  </span>
+                                </div>
+                              </div>
+                              <p className={`text-[10.5px] leading-[1.5] font-medium m-0 whitespace-normal ${!enrichedData[node.target] && !node.is_synthesized ? 'text-white/40' : 'text-white/60'}`}>
+                                {enrichedData[node.target]?.operational_impact || node.operational_impact}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/5 bg-white/[0.02] px-3 py-2 rounded-lg">
+                            <span className="text-[9px] mono text-white/40 font-black uppercase tracking-widest">Est. Network Delay</span>
+                            <span className="text-xs font-black text-white italic">
+                              {node.delay_days} DAYS
+                            </span>
                           </div>
                         </div>
-                        <div className="flex justify-between items-center mt-1 pt-1 border-t border-white/5">
-                          <span className="text-[8px] text-muted-foreground font-bold uppercase tracking-tighter">Est. Recovery</span>
-                          <span className="text-[10px] font-mono text-primary font-bold">
-                            {enrichedData[node.target]?.primary_metric ? (
-                              <span className="text-primary-foreground bg-primary px-1 rounded-[2px] mr-2">
-                                {enrichedData[node.target].primary_metric}
-                              </span>
-                            ) : null}
-                            {node.delay_days} Days
-                          </span>
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })
+                      </motion.div>
+                    );
+                  })
                 ) : (
-                  // Skeleton Loading State for structural impact list
-                  <div className="flex flex-col gap-3">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <div key={i} className="p-3 bg-card/40 border border-white/5 rounded-md animate-pulse">
-                        <div className="flex justify-between mb-3">
-                          <div className="h-3 w-24 bg-white/10 rounded" />
-                          <div className="h-3 w-8 bg-white/10 rounded" />
-                        </div>
-                        <div className="h-1.5 w-full bg-white/5 rounded-full mb-3" />
-                        <div className="flex flex-col gap-2">
-                          <div className="h-2 w-full bg-white/5 rounded" />
-                          <div className="h-2 w-2/3 bg-white/5 rounded" />
-                        </div>
-                      </div>
-                    ))}
-                    <div className="flex flex-col items-center justify-center py-6 opacity-30 text-center gap-2">
-                       <Network size={20} className="animate-spin" />
-                       <p className="text-[8px] tracking-[0.2em] uppercase">Synthesizing Network Topologies…</p>
-                    </div>
+                  <div className="flex flex-col items-center justify-center py-10 opacity-30 text-center gap-4 h-full">
+                    <Radio size={32} className="animate-pulse text-white" />
+                    <p className="text-[10px] mono font-black tracking-[0.3em] uppercase">Synthesizing Topology…</p>
                   </div>
                 )}
               </AnimatePresence>
@@ -421,8 +359,8 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
           </div>
 
           {/* MIDDLE — Map Canvas */}
-          <div className="flex-1 relative overflow-hidden bg-[#05080f] border-r border-primary/20">
-            {MAPTILER_KEY && simulationData ? (
+          <div className="flex-1 relative overflow-hidden bg-[#05080f] border-r border-white/10">
+            {MAPTILER_KEY && simulationData && isWebGLSupported ? (
               <Map
                 initialViewState={{
                   longitude: (epicenter || NEUTRAL_CENTER).lng,
@@ -432,111 +370,112 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
                 }}
                 mapStyle={`https://api.maptiler.com/maps/dataviz-dark/style.json?key=${MAPTILER_KEY}`}
                 scrollZoom={true}
-                className="w-full h-full"
+                className="w-full h-full grayscale-[50%] contrast-125 brightness-75 mix-blend-screen"
               >
                 <NavigationControl position="top-right" showCompass={false} />
 
                 {/* Epicenter Marker */}
                 <Marker longitude={(epicenter || NEUTRAL_CENTER).lng} latitude={(epicenter || NEUTRAL_CENTER).lat} anchor="center">
                   <div className="relative flex flex-col items-center">
-                    <motion.div
-                      animate={{ scale: [1, 1.5, 1], opacity: [1, 0.4, 1] }}
-                      transition={{ duration: 2, repeat: Infinity }}
-                      className="absolute -inset-4 bg-danger/30 rounded-full blur-md"
-                    />
-                    <div className="w-8 h-8 rounded-full bg-danger border-2 border-white flex items-center justify-center shadow-[0_0_20px_#ef4444] z-10">
-                      <AlertTriangle className="text-white" size={14} />
+                    <div className={`w-32 h-32 rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-20 ${severityColor.replace('text', 'bg')} blur-2xl animate-pulse`} />
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shadow-[0_0_30px_currentColor] z-10 transition-transform duration-500 bg-white/10 backdrop-blur-md border border-white/20`} style={{ color: severityColor === 'text-danger' ? '#ef4444' : severityColor === 'text-warning' ? '#f59e0b' : '#3b82f6' }}>
+                      <Activity className="" size={14} />
                     </div>
-                    <div className="mt-2 px-2 py-1 bg-background border border-danger text-white font-bold rounded text-[8px] whitespace-nowrap uppercase tracking-tighter">
-                      {epicenter ? `EPICENTER: ${event?.location}` : 'GLOBAL FALLBACK VIEW'}
+                    <div className="mt-2 px-3 py-1.5 glass-panel border border-white/10 text-white font-black rounded-lg text-[9px] whitespace-nowrap uppercase tracking-widest shadow-2xl">
+                      {epicenter ? `Origin::${event?.location}` : 'Global Fallback'}
                     </div>
                   </div>
                 </Marker>
 
                 {/* Node Markers */}
-                {visibleNodes.map((node) => (
-                  <Marker key={node.target} longitude={node.lng} latitude={node.lat} anchor="center">
+                {visibleNodes.map((node, idx) => (
+                  <Marker key={`${node.target}-${idx}`} longitude={node.lng} latitude={node.lat} anchor="center">
                     <motion.div
                       initial={{ scale: 0, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
+                      transition={{ delay: idx * 0.03 }}
                       className="relative group flex flex-col items-center"
                     >
-                      <div className={`w-3.5 h-3.5 rounded-full border border-white/50 shadow-xl ${node.depth === 1 ? 'bg-danger' : node.depth === 2 ? 'bg-warning' : 'bg-primary'}`} />
-                      <div className="absolute top-full mt-1 px-1.5 py-0.5 bg-background/90 border border-white/10 rounded backdrop-blur-sm pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap flex flex-col items-center">
-                        <span className="text-[9px] font-bold text-white">{node.target}</span>
-                        <span className="text-[8px] text-muted-foreground">{((node.impact) * 100).toFixed(0)}% Disruption Risk</span>
+                      <div className={`w-4 h-4 rounded-full border-2 border-white/50 shadow-[0_0_15px_currentColor] transition-all duration-300 group-hover:scale-150 ${node.depth === 1 ? 'bg-danger text-danger' : node.depth === 2 ? 'bg-warning text-warning' : 'bg-primary text-primary'}`} />
+                      <div className="absolute top-full mt-2 px-3 py-2 glass-panel border border-white/20 rounded-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-300 z-50 whitespace-nowrap flex flex-col items-center shadow-[0_10px_30px_rgba(0,0,0,0.8)] -translate-y-2 group-hover:translate-y-0">
+                        <span className="text-[10px] font-black text-white uppercase tracking-tight italic">{node.target}</span>
+                        <span className="text-[9px] mono text-white/50 font-bold border-t border-white/10 pt-1 mt-1">{((node.impact) * 100).toFixed(0)}% Exposure</span>
                       </div>
                     </motion.div>
                   </Marker>
                 ))}
 
-                {/* Connection Lines (GeoJSON) */}
+                {/* Connection Lines */}
                 {(epicenter || NEUTRAL_CENTER) && (
                   <Source id="ripple-lines" type="geojson" data={lineFeatures}>
+                    <Layer
+                      id="ripple-lines-glow"
+                      type="line"
+                      paint={{
+                        'line-color': ['match', ['get', 'depth'], 1, '#ef4444', 2, '#f59e0b', '#3b82f6'],
+                        'line-width': 8,
+                        'line-opacity': 0.6,
+                        'line-blur': 3
+                      }}
+                    />
                     <Layer
                       id="ripple-lines-layer"
                       type="line"
                       paint={{
                         'line-color': ['match', ['get', 'depth'], 1, '#ef4444', 2, '#f59e0b', '#3b82f6'],
-                        'line-width': 1.5,
-                        'line-opacity': 0.6,
-                        'line-dasharray': [2, 2]
+                        'line-width': 3,
+                        'line-opacity': 1.0,
+                        'line-dasharray': [1, 2.5]
                       }}
                     />
                   </Source>
                 )}
               </Map>
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-muted/5">
-                <div className="text-center opacity-40">
-                  <MapIcon size={48} className="mx-auto mb-4" />
-                  <p className="text-xs uppercase tracking-[0.2em]">Map Engine Offline</p>
-                  <p className="text-[10px] mt-2">Falling back to dark topology view</p>
-                </div>
+              <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center text-white/20 relative z-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
+                <Radio size={64} className="mb-6 opacity-20" />
+                <h3 className="mono text-sm uppercase font-black tracking-[0.5em] m-0 mb-2">Telemetry Offline</h3>
+                <p className="text-xs max-w-sm">Cannot establish secure visual link to GIS node. Awaiting WebGL interface handshake.</p>
               </div>
             )}
 
-            {/* ── Network Topology Legend — HOVERABLE COMPONENT ── */}
-            <div
-              className="absolute bottom-6 left-6 z-40"
-              onMouseEnter={() => setIsLegendExpanded(true)}
-              onMouseLeave={() => setIsLegendExpanded(false)}
-            >
+            {/* Network Topology Legend */}
+            <div className="absolute bottom-8 left-8 z-40">
               <motion.div
                 initial={false}
-                animate={{ width: isLegendExpanded ? 240 : 44, height: isLegendExpanded ? 'auto' : 44 }}
-                className="bg-background/90 border border-white/10 rounded-xl backdrop-blur-md shadow-2xl overflow-hidden cursor-default transition-all duration-300"
+                animate={{ width: isLegendExpanded ? 260 : 48, height: isLegendExpanded ? 'auto' : 48 }}
+                onMouseEnter={() => setIsLegendExpanded(true)}
+                onMouseLeave={() => setIsLegendExpanded(false)}
+                className="glass-panel border-white/10 rounded-2xl shadow-2xl overflow-hidden cursor-default transition-all duration-300 flex items-center justify-center"
               >
                 {!isLegendExpanded ? (
-                  <div className="w-full h-full flex items-center justify-center text-primary group-hover:text-white">
-                    <Network size={20} />
-                  </div>
+                  <Network size={20} className="text-white/60" />
                 ) : (
-                  <div className="p-4">
-                    <h4 className="text-[9px] uppercase tracking-widest text-muted-foreground font-bold mb-3 border-b border-white/10 pb-2 flex items-center justify-between">
-                      Network Topology <ChevronRight size={10} />
+                  <div className="p-6 w-full">
+                    <h4 className="text-[9px] mono uppercase tracking-[0.3em] font-black text-white/30 mb-4 border-b border-white/10 pb-3 flex items-center justify-between">
+                      Node Classification
                     </h4>
-                    <div className="flex flex-col gap-2.5">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 rounded-full h-2 bg-danger shadow-[0_0_8px_#ef4444]" />
-                          <span className="text-[10px] font-semibold text-white uppercase">Tier 1 · Direct</span>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2.5 h-2.5 rounded-full bg-danger shadow-[0_0_10px_#ef4444]" />
+                          <span className="text-[10px] font-black text-white uppercase tracking-tight">Tier 1 · Direct</span>
                         </div>
-                        <span className="text-[9px] font-mono text-danger bg-danger/10 px-1.5 py-0.5 rounded border border-danger/20">{tier1Count}</span>
+                        <span className="text-[9px] mono font-bold text-danger bg-danger/10 px-2 py-0.5 rounded border border-danger/20">{tier1Count}</span>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 rounded-full h-2 bg-warning shadow-[0_0_8px_#f59e0b]" />
-                          <span className="text-[10px] font-semibold text-white uppercase">Tier 2 · Regional</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2.5 h-2.5 rounded-full bg-warning shadow-[0_0_10px_#f59e0b]" />
+                          <span className="text-[10px] font-black text-white uppercase tracking-tight">Tier 2 · Regional</span>
                         </div>
-                        <span className="text-[9px] font-mono text-warning bg-warning/10 px-1.5 py-0.5 rounded border border-warning/20">{tier2Count}</span>
+                        <span className="text-[9px] mono font-bold text-warning bg-warning/10 px-2 py-0.5 rounded border border-warning/20">{tier2Count}</span>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 rounded-full h-2 bg-primary shadow-[0_0_8px_#3b82f6]" />
-                          <span className="text-[10px] font-semibold text-white uppercase">Tier 3 · Downstream</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2.5 h-2.5 rounded-full bg-primary shadow-[0_0_10px_#3b82f6]" />
+                          <span className="text-[10px] font-black text-white uppercase tracking-tight">Tier 3 · Downstream</span>
                         </div>
-                        <span className="text-[9px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">{tier3Count}</span>
+                        <span className="text-[9px] mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">{tier3Count}</span>
                       </div>
                     </div>
                   </div>
@@ -546,7 +485,7 @@ const ImpactSimulationView = ({ event, simulationData, onClose }) => {
           </div>
 
           {/* RIGHT — Decision Intelligence */}
-          <div className="w-[420px] shrink-0 bg-background/95 relative z-30 flex flex-col h-full shadow-2xl">
+          <div className="w-[420px] shrink-0 bg-[#05080f]/90 relative z-30 flex flex-col h-full shadow-[-10px_0_40px_rgba(0,0,0,0.5)]">
             <DecisionPanel eventId={event?.id} />
           </div>
         </div>

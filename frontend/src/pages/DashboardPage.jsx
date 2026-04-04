@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Activity, ShieldAlert } from 'lucide-react';
+
 import GlobalRiskMap from '../components/Map/GlobalRiskMap';
 import PredictionsPanel from '../components/Predictions/PredictionsPanel';
 import EventFeed from '../components/Events/EventFeed';
@@ -13,8 +15,14 @@ const DashboardPage = () => {
     const [selectedEvent, setSelectedEvent] = useState(null);
     const { simulationData, impactData } = useEventSimulation(selectedEvent?.id);
 
-    const handleLocationSelect = (loc) => {
-        setSelectedLocation(loc);
+    const handleLocationSelect = (evt) => {
+        if (evt) {
+            setSelectedLocation(evt.location);
+            setSelectedEvent(evt);
+        } else {
+            setSelectedLocation(null);
+            setSelectedEvent(null);
+        }
     };
 
     const handleEventSelect = (evt) => {
@@ -25,6 +33,7 @@ const DashboardPage = () => {
     // Slice data for "Dashboard Preview" versions - High Density
     const recentEvents = events.slice(0, 10);
     const topPredictions = predictions.slice(0, 8);
+    const critCount = events.filter(e => e.severity?.toLowerCase() === 'high' || e.severity?.toLowerCase() === 'critical').length;
 
     return (
         <div className="flex flex-col gap-12 p-8 md:p-10 max-w-7xl mx-auto">
@@ -32,7 +41,34 @@ const DashboardPage = () => {
             {/* Top Intelligence Banner */}
             <TopInsightBanner predictions={predictions} />
 
+            {/* Core Telemetry Strip */}
+            <div className="flex items-center bg-[#151c25]/40 border border-white/5 p-5 rounded-sm shadow-2xl relative overflow-hidden group">
+                {/* Background scanning effect */}
+                <div className="absolute inset-0 opacity-[0.015] pointer-events-none" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+                
+                <div className="flex-1 flex justify-between items-center px-8 border-r border-white/5 relative z-10">
+                    <div className="flex flex-col">
+                        <div className="flex items-center gap-2 mb-1.5 cursor-default">
+                            <Activity size={12} className="text-primary" />
+                            <h4 className="mono text-[9px] text-slate-400 uppercase tracking-[0.3em] font-black m-0">Detected Active Scenarios</h4>
+                        </div>
+                        <span className="text-3xl font-black text-white tracking-tighter leading-none">{String(events.length).padStart(3, '0')}</span>
+                    </div>
+                </div>
+                
+                <div className="flex-1 flex justify-between items-center px-8 relative z-10">
+                    <div className="flex flex-col">
+                        <div className="flex items-center gap-2 mb-1.5 cursor-default">
+                            <ShieldAlert size={12} className="text-danger animate-pulse" />
+                            <h4 className="mono text-[9px] text-danger/80 uppercase tracking-[0.3em] font-black m-0">Critical Risk Vectors</h4>
+                        </div>
+                        <span className="text-3xl font-black text-danger tracking-tighter leading-none drop-shadow-[0_0_15px_rgba(239,68,68,0.4)]">{String(critCount).padStart(3, '0')}</span>
+                    </div>
+                </div>
+            </div>
+
             {/* 1. Global Risk Map Section */}
+
             <section className="flex flex-col gap-5">
                 <div className="flex justify-between items-end px-1">
                     <div>

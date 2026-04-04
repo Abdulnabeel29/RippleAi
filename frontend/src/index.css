@@ -2,37 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --background: #05080f;
+  --card: #0a0f1b;
+  --primary-color: #3b82f6;
+  --danger-color: #ef4444;
+  --warning-color: #f59e0b;
+  --success-color: #10b981;
+  --border-white: rgba(255, 255, 255, 0.05);
+}
+
 body {
-  background-color: #0d141d;
-  color: #dce3f0;
+  background-color: var(--background);
+  color: #f8fafc;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-y: auto;
   overflow-x: hidden;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.01em;
 }
 
+/* Typography Extensions */
 .mono {
-  font-family: 'Berkeley Mono', monospace;
+  font-family: 'Berkeley Mono', 'Fira Code', monospace;
 }
 
-.map-glow-red {
-  filter: drop-shadow(0 0 4px #ffb3ad);
+.tracking-extreme {
+  letter-spacing: 0.4em;
 }
 
-.map-glow-amber {
-  filter: drop-shadow(0 0 4px #ffb95f);
+/* Glassmorphism & Depth System */
+.glass-panel {
+  @apply backdrop-blur-xl bg-[#0a0f1b]/90 border border-white/5 shadow-[0_20px_50px_rgba(0,0,0,0.5)];
 }
 
+.glass-card {
+  @apply backdrop-blur-md bg-white/[0.02] border border-white/5 hover:bg-white/[0.05] transition-all duration-300;
+}
+
+/* Modern Glowing Indicators */
+.glow-red { @apply shadow-[0_0_20px_rgba(239,68,68,0.4)]; }
+.glow-amber { @apply shadow-[0_0_20px_rgba(245,158,11,0.4)]; }
+.glow-blue { @apply shadow-[0_0_20px_rgba(59,130,246,0.4)]; }
+
+.status-pipe {
+  @apply w-[2px] rounded-full;
+}
+
+.status-pipe-red { 
+  @apply bg-danger;
+  box-shadow: 0 0 15px #ef4444;
+}
+.status-pipe-amber { 
+  @apply bg-warning;
+  box-shadow: 0 0 15px #f59e0b;
+}
+.status-pipe-blue { 
+  @apply bg-primary;
+  box-shadow: 0 0 15px #3b82f6; 
+}
+
+/* Masking & Layout Utilities */
 .intel-feed-mask {
-  mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent);
 }
 
-
-/* Base custom scrollbar */
+/* Custom Scrollbar - Minimalist HUD Style */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -40,10 +79,40 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(139, 148, 158, 0.3);
+  background-color: rgba(255, 255, 255, 0.05);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(139, 148, 158, 0.6);
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Keyframes & Animations */
+@keyframes marker-pulse {
+  0% { transform: scale(0.5); opacity: 0.8; }
+  100% { transform: scale(4); opacity: 0; }
+}
+
+.animate-marker-pulse {
+  animation: marker-pulse 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.animate-marker-pulse-fast {
+  animation: marker-pulse 1.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.pulse-ring {
+  @apply absolute inset-0 rounded-full pointer-events-none;
+}
+
+.pulse-ring-high { @apply bg-danger/30; }
+.pulse-ring-medium { @apply bg-warning/30; }
+.pulse-ring-low { @apply bg-primary/30; }
+
+.delay-pulse-1 { animation-delay: 0.5s; }
+.delay-pulse-2 { animation-delay: 1s; }
+
+/* HUD Specific Overlays */
+.hud-corner {
+  @apply border-white/10 w-2 h-2 absolute;
 }
