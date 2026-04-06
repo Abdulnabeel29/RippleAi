@@ -43,7 +43,7 @@ function App() {
         
         {[
           { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
-          { to: "/map", label: "Global Risk Map", icon: Map },
+          { to: "/map", label: "Global Disruption Matrix", icon: Map },
           { to: "/graph", label: "Network Graph", icon: Globe },
           { to: "/predictions", label: "Predictive Analytics", icon: BrainCircuit },
           { to: "/analytics", label: "Risk Matrix", icon: BarChart3 },

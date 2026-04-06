@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, TrendingUp, AlertOctagon, Zap, Shield, ChevronRight, Activity, Cpu, MapPin, Radio, Timer } from 'lucide-react';
+import { Target, TrendingUp, AlertOctagon, Zap, Shield, ChevronRight, Activity, Cpu, MapPin, Timer } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as api from '../../services/api';
@@ -59,13 +59,6 @@ const PredictionsPanel = ({ predictions }) => {
               </div>
            </div>
            
-           <div className="w-px h-10 bg-white/10 hidden lg:block" />
-
-           <button className="group flex items-center gap-3 px-6 py-3 bg-white/[0.03] border border-white/10 rounded-xl hover:bg-white hover:text-[#05080f] transition-all duration-500 shadow-xl overflow-hidden relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              <Radio size={16} className="group-hover:animate-pulse relative z-10" />
-              <span className="mono text-[10px] font-black uppercase tracking-widest relative z-10">Sync Neural Weights</span>
-           </button>
         </div>
       </div>
 

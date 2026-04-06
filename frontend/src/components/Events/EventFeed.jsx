@@ -30,6 +30,24 @@ const MASTER_LOGS = [
 
 const EventFeed = ({ events, onEventSelect, selectedEventId }) => {
   const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const [logs, setLogs] = useState(MASTER_LOGS);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
+
+  const handleClearLogs = () => {
+    setLogs([]);
+  };
+
+  // Reset pagination when events change (e.g. filtered by location)
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [events]);
+
+  const totalPages = Math.ceil(events.length / itemsPerPage);
+  const paginatedEvents = events.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   if (!events) return (
     <div className="flex flex-col gap-4 p-6 min-h-[300px] glass-panel opacity-60">
@@ -84,7 +102,7 @@ const EventFeed = ({ events, onEventSelect, selectedEventId }) => {
           <div className="absolute inset-0 opacity-[0.02] pointer-events-none" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-8 relative z-10">
-          {events.map((evt, idx) => {
+          {paginatedEvents.map((evt, idx) => {
             const isSelected = selectedEventId === evt.id;
             const severity = evt.severity.toLowerCase();
 
@@ -185,6 +203,43 @@ const EventFeed = ({ events, onEventSelect, selectedEventId }) => {
              <span className="mono text-[8px] font-black text-white/30 uppercase tracking-[0.4em]">Satellite Link Active :: Encryption Multi-Layered :: 12.8ms Latency</span>
           </div>
         </div>
+
+        {/* Elite Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex justify-between items-center mt-8 bg-white/[0.02] border border-white/5 rounded-xl px-6 py-4 backdrop-blur-md">
+            <div className="flex items-center gap-4">
+              <span className="mono text-[10px] text-white/40 uppercase tracking-widest font-black">
+                Page {currentPage} of {totalPages}
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className={`px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg mono text-[10px] font-black uppercase tracking-widest transition-all ${currentPage === 1 ? 'opacity-30 cursor-not-allowed' : 'hover:text-primary active:scale-95'}`}
+              >
+                Prev
+              </button>
+              <div className="flex gap-1.5 px-4 hidden sm:flex">
+                {[...Array(totalPages)].map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentPage(i + 1)}
+                    className={`w-2 h-2 rounded-full transition-all duration-300 ${currentPage === i + 1 ? 'bg-primary shadow-[0_0_8px_#3b82f6] w-6' : 'bg-white/20 hover:bg-white/40'}`}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className={`px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg mono text-[10px] font-black uppercase tracking-widest transition-all ${currentPage === totalPages ? 'opacity-30 cursor-not-allowed' : 'hover:text-primary active:scale-95'}`}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Dialog open={isLogsOpen} onOpenChange={setIsLogsOpen}>
@@ -216,7 +271,7 @@ const EventFeed = ({ events, onEventSelect, selectedEventId }) => {
                 </div>
                 
                 <div className="flex flex-col gap-1.5 leading-relaxed overflow-x-hidden">
-                  {MASTER_LOGS.map((log) => (
+                  {logs.length > 0 ? logs.map((log) => (
                     <div key={log.id} className="flex gap-4 hover:bg-white/[0.03] py-1 px-3 rounded-lg transition-colors group cursor-default">
                       <span className="text-white/20 shrink-0 font-bold tracking-tighter">[{log.time}]</span>
                       <span className={`shrink-0 w-24 flex items-center gap-1.5 font-black uppercase italic ${
@@ -229,7 +284,11 @@ const EventFeed = ({ events, onEventSelect, selectedEventId }) => {
                       </span>
                       <span className="text-white/60 group-hover:text-white transition-colors">{log.msg}</span>
                     </div>
-                  ))}
+                  )) : (
+                    <div className="py-10 text-center opacity-20 mono text-[10px] uppercase tracking-widest">
+                       Log Buffer Cleared...
+                    </div>
+                  )}
                   
                   <div className="text-primary mt-4 flex items-center gap-3 px-3 py-2 bg-primary/5 rounded-lg border border-primary/10 animate-pulse">
                     <div className="w-2 h-2 bg-primary rounded-full shadow-[0_0_8px_#3b82f6]" />
@@ -240,12 +299,17 @@ const EventFeed = ({ events, onEventSelect, selectedEventId }) => {
           </div>
 
           <div className="p-6 bg-white/[0.02] border-t border-white/10 flex justify-end gap-4">
-             <button className="mono text-[10px] font-black text-white/40 uppercase tracking-widest hover:text-white transition-colors">Clear Stream Buffer</button>
+             <button 
+               onClick={handleClearLogs}
+               className="mono text-[10px] font-black text-white/40 uppercase tracking-widest hover:text-white transition-colors"
+             >
+               Clear Logs
+             </button>
              <button 
                onClick={() => setIsLogsOpen(false)}
-               className="px-6 py-2 bg-white text-[#05080f] font-black rounded-lg text-[10px] uppercase tracking-widest transition-all hover:bg-primary hover:text-white active:scale-95 shadow-xl"
+               className="px-6 py-2 bg-white text-[#05080f] font-black rounded-lg text-[10px] uppercase tracking-widest transition-all hover:bg-[#3b82f6] hover:text-white active:scale-95 shadow-xl"
              >
-               Terminate Session
+               Exit Terminal
              </button>
           </div>
         </DialogContent>

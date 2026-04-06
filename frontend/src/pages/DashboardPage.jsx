@@ -67,7 +67,7 @@ const DashboardPage = () => {
                 </div>
             </div>
 
-            {/* 1. Global Risk Map Section */}
+            {/* 1. Global Disruption Matrix Section */}
 
             <section className="flex flex-col gap-5">
                 <div className="flex justify-between items-end px-1">
@@ -105,7 +105,7 @@ const DashboardPage = () => {
                         <PredictionsPanel predictions={topPredictions} />
                     </div>
                     {/* Explicit redirect button at bottom */}
-                    <Link to="/analytics" className="mt-8 mb-6 px-10 py-3 bg-white/5 border border-white/10 text-white font-bold text-[11px] uppercase tracking-[0.2em] rounded-sm hover:bg-white hover:text-black hover:border-white transition-all active:scale-95 flex items-center gap-2 group shadow-lg">
+                    <Link to="/predictions" className="mt-8 mb-6 px-10 py-3 bg-white/5 border border-white/10 text-white font-bold text-[11px] uppercase tracking-[0.2em] rounded-sm hover:bg-white hover:text-black hover:border-white transition-all active:scale-95 flex items-center gap-2 group shadow-lg">
                         View All Predictive Analytics
                         <span className="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">arrow_forward</span>
                     </Link>
