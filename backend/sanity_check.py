@@ -12,6 +12,7 @@ from app.models.news_article import NewsArticle
 from app.services.graph_service import graph_service
 from app.services.ingestion_service import run_ingestion_pipeline
 import app.services.ingestion_service as ingestion_service
+import app.services.news_service as news_service
 from app.schemas.event import EventDetectionResult
 
 async def run_sanity_checks():
@@ -85,8 +86,8 @@ async def run_sanity_checks():
             }]
             
         # Override Both
-        original_fetch = news_service.fetch_news
-        news_service.fetch_news = mock_fetch_news
+        original_fetch = ingestion_service.fetch_news
+        ingestion_service.fetch_news = mock_fetch_news
         original_detect = ingestion_service.detect_event
         
         async def mock_detect_event(text):

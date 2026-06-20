@@ -143,12 +143,14 @@ async def get_event_impact(
             raise HTTPException(status_code=404, detail="Event not found")
             
         impact = await graph_service.get_affected_entities(event_id)
+        affected_entities = impact.get("industries", []) + impact.get("companies", []) + impact.get("downstream_companies", [])
         
         return APIResponse(
             status="success",
             data={
                 "event": EventResponse.model_validate(event).model_dump(),
-                "impact": impact
+                "impact": impact,
+                "affected_entities": affected_entities
             }
         )
     except HTTPException:

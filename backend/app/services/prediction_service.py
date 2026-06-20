@@ -52,136 +52,208 @@ class PredictionService:
         Args:
             db: Async database session.
         """
+        # ── Event type normalization map ─────────────────────────────────────
+        # Collapses semantically identical LLM-generated labels into canonical types
+        _CANONICAL_TYPE_MAP = {
+            # Cyber
+            "cyber attack": "cyber attack",
+            "cyber-attack": "cyber attack",
+            "cyberattack": "cyber attack",
+            "cybersecurity threat": "cyber attack",
+            "cybersecurity incident": "cyber attack",
+            "cybersecurity breach": "cyber attack",
+            "cyber vulnerability": "cyber attack",
+            "supply chain attack": "cyber attack",
+            "supply chain compromise": "cyber attack",
+            "data breach": "cyber attack",
+            "data leak": "cyber attack",
+            # Conflict / War
+            "war": "conflict",
+            "military conflict": "conflict",
+            "geopolitical conflict": "conflict",
+            "geopolitical tensions": "conflict",
+            "geopolitical tension": "conflict",
+            "geopolitical instability": "conflict",
+            "geopolitical": "conflict",
+            "blockade": "conflict",
+            "blockage": "conflict",
+            # Trade
+            "trade policy change": "trade disruption",
+            "trade policy": "trade disruption",
+            "trade restriction": "trade disruption",
+            "trade tension": "trade disruption",
+            "trade dispute": "trade disruption",
+            "trade regulation": "trade disruption",
+            "export control": "trade disruption",
+            "export restriction": "trade disruption",
+            "tariff": "trade disruption",
+            "tariff refund": "trade disruption",
+            # Labor
+            "labor strike": "labor dispute",
+            "labor shortage": "labor dispute",
+            "labor dispute": "labor dispute",
+            "protest": "labor dispute",
+            # Regulatory
+            "regulatory": "regulatory change",
+            "regulatory change": "regulatory change",
+            "regulatory update": "regulatory change",
+            "regulatory disruption": "regulatory change",
+            "regulatory dispute": "regulatory change",
+            "regulatory clarification": "regulatory change",
+            "enforcement action": "regulatory change",
+            # Supply shortages
+            "shortage": "supply shortage",
+            "supply shortage": "supply shortage",
+            "supply disruption": "supply shortage",
+            "supply chain disruption": "supply shortage",
+            "supply chain delay": "supply shortage",
+            "component shortage": "supply shortage",
+            "inventory shortage": "supply shortage",
+            "raw material shortage": "supply shortage",
+            "medicine shortage": "supply shortage",
+            "fuel shortage": "supply shortage",
+            "gas shortage": "supply shortage",
+            # Shipping
+            "maritime disruption": "shipping disruption",
+            "shipping disruption": "shipping disruption",
+            "shipping route disruption": "shipping disruption",
+            "shipping lane disruption": "shipping disruption",
+            "port congestion": "shipping disruption",
+            "logistics disruption": "shipping disruption",
+            "customs delay": "shipping disruption",
+            "railway disruption": "shipping disruption",
+            # Price / Inflation
+            "price increase": "price shock",
+            "inflation": "price shock",
+            "energy price shock": "price shock",
+            "energy price increase": "price shock",
+            "fuel price increase": "price shock",
+            "fuel surcharge": "price shock",
+            "surcharge": "price shock",
+            "surcharge implementation": "price shock",
+        }
+
+        def _normalize_type(raw: str) -> str:
+            return _CANONICAL_TYPE_MAP.get(raw.lower().strip(), raw.lower().strip())
+
         try:
             # 30-day time window
-            window_start = datetime.now(timezone.utc) - timedelta(days=30)
-            
+            now = datetime.now(timezone.utc)
+            window_start = now - timedelta(days=30)
+
+            from app.core.config import get_settings
+            settings = get_settings()
+            is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+            if is_sqlite:
+                window_start = window_start.replace(tzinfo=None)
+                now_compare = now.replace(tzinfo=None)
+            else:
+                now_compare = now
+
             # Query events within the 30-day window
-            query = select(Event).where(Event.detected_at >= window_start)
-            result = await db.execute(query)
+            result = await db.execute(select(Event).where(Event.detected_at >= window_start))
             events = result.scalars().all()
 
             if not events:
+                logger.info("No events in the last 30 days — skipping prediction update.")
                 return
 
-            # Aggregate weights by (event_type, location)
-            # weight = 1 / (1 + days_since_event)
-            now = datetime.now(timezone.utc)
-            topology_weights = {}
-            total_global_weight = 0.0
+            # ── Aggregate weights by normalized (event_type, location) ───────
+            topology_weights: dict = {}
 
             for event in events:
-                ev_type = (event.event_type or "").lower().strip()
-                loc = (event.location or "").lower().strip()
-                
-                # Filter out useless data
-                if loc == "unknown" or ev_type in ["unknown", "noise", ""]:
+                raw_type = (event.event_type or "").strip()
+                loc = (event.location or "").strip()
+
+                # Filter out noise
+                if not raw_type or raw_type.lower() in ["unknown", "noise", ""] \
+                        or not loc or loc.lower() == "unknown":
                     continue
-                    
-                key = (ev_type, loc)
-                
-                days_since = (now - event.detected_at).total_seconds() / (24 * 3600)
-                # Ensure non-negative days_since due to potential clock skew
-                days_since = max(0.0, days_since)
-                
+
+                norm_type = _normalize_type(raw_type)
+                key = (norm_type, loc.lower())
+
+                evt_dt = event.detected_at
+                if evt_dt.tzinfo is None and now_compare.tzinfo is not None:
+                    evt_dt = evt_dt.replace(tzinfo=timezone.utc)
+                elif evt_dt.tzinfo is not None and now_compare.tzinfo is None:
+                    evt_dt = evt_dt.replace(tzinfo=None)
+
+                days_since = max(0.0, (now_compare - evt_dt).total_seconds() / 86400)
                 weight = 1.0 / (1.0 + days_since)
-                
+
                 if key not in topology_weights:
                     topology_weights[key] = {
                         "weight_sum": 0.0,
-                        "event_type": event.event_type,
-                        "location": event.location,
-                        "max_severity": event.severity
+                        "event_type": norm_type,   # canonical display name
+                        "location": event.location, # preserve original casing
+                        "max_severity": event.severity,
+                        "count": 0,
                     }
-                
                 topology_weights[key]["weight_sum"] += weight
-                total_global_weight += weight
+                topology_weights[key]["count"] += 1
 
-            # Load existing predictions to preserve cached AI data
-            existing_preds_query = select(Prediction)
-            existing_results = await db.execute(existing_preds_query)
+            if not topology_weights:
+                logger.info("All events filtered out — nothing to predict.")
+                return
+
+            # ── Sort clusters by weight (highest recency-weighted frequency first) ──
+            sorted_pairs = sorted(
+                topology_weights.items(),
+                key=lambda x: x[1]["weight_sum"],
+                reverse=True
+            )
+
+            # ── Load existing predictions to preserve cached AI narration ────
+            existing_results = await db.execute(select(Prediction))
             existing_predictions = existing_results.scalars().all()
-            
-            cache_map = {}
+            cache_map: dict = {}
             for p in existing_predictions:
-                ckey = (p.event_type.lower().strip(), p.location.lower().strip())
+                ckey = (_normalize_type(p.event_type), p.location.lower().strip())
                 cache_map[ckey] = {
                     "explanation": p.explanation,
                     "why": p.why,
                     "how": p.how,
-                    "strategic_brief": getattr(p, "strategic_brief", None)
+                    "strategic_brief": getattr(p, "strategic_brief", None),
                 }
 
-            # Clear old predictions
+            # ── Wipe old predictions AFTER we have our plan ──────────────────
             await db.execute(delete(Prediction))
+            await db.flush()  # don't commit yet — keep this in the same transaction
 
-            for key, data in topology_weights.items():
-                # Normalized Probability across all active predictions
+            # ── Insert new predictions WITHOUT blocking AI enrichment ────────
+            new_records: list = []
+            for key, data in sorted_pairs:
                 probability = 1.0 - (1.0 / (1.0 + data["weight_sum"]))
-                
-                # Assign dynamic Risk Level string
+
                 if probability >= 0.7:
                     risk_level = "High"
                 elif probability >= 0.4:
                     risk_level = "Medium"
                 else:
                     risk_level = "Low"
-                    
-                # Calculate delays based on probability and typical severity
+
                 base_delay = _get_base_delay(data["event_type"])
                 expected_delay_days = max(1, int(base_delay * probability) + 1)
 
-                cached_entry = cache_map.get(key)
-                if cached_entry and cached_entry.get("explanation"):
-                    # Reuse cached intelligence completely
-                    explanation = cached_entry["explanation"]
-                    why = cached_entry["why"]
-                    how = cached_entry["how"]
-                    strategic_brief = cached_entry.get("strategic_brief")
+                cached = cache_map.get(key)
+                if cached and cached.get("explanation"):
+                    explanation = cached["explanation"]
+                    why = cached["why"]
+                    how = cached["how"]
+                    strategic_brief = cached.get("strategic_brief")
                 else:
-                    # Generate RAG Explanation for unseen disruption clusters only
-                    prediction_dict = {
-                        "event_type": data["event_type"],
-                        "location": data["location"],
-                        "probability": round(probability, 3),
-                        "risk_level": risk_level
-                    }
-                    explanation = await rag_service.generate_explanation(prediction_dict, db)
-                    
-                    # --- NEW: ENRICH ON CREATION ---
-                    try:
-                        logger.info("Enriching new prediction: %s in %s", data['event_type'], data['location'])
-                        # We use a minimal enrichment call here to populate why/how
-                        from app.schemas.prediction import PredictionEnrichmentRequest
-                        enrich_req = PredictionEnrichmentRequest(
-                            event_type=data["event_type"],
-                            location=data["location"],
-                            risk_level=risk_level
-                        )
-                        # Avoid recursive DB commit by just getting the data
-                        enrich_res = await self.enrich_prediction_intelligence(enrich_req, db)
-                        why = enrich_res.why
-                        how = enrich_res.how
-                        
-                        # Also generate decision brief for this potential event
-                        brief_res = await rag_service.generate_decision_intelligence(
-                            event_type=data["event_type"],
-                            location=data["location"],
-                            severity=risk_level.lower(),
-                            db=db
-                        )
-                        strategic_brief = json.dumps(brief_res)
-                        
-                        # Wait 2s to respect rate limits
-                        await asyncio.sleep(2)
-                    except Exception as e_enrich:
-                        logger.warning("Initial enrichment failed for %s: %s", data['location'], e_enrich)
-                        why = None
-                        how = None
-                        strategic_brief = None
-                    # ------------------------------
+                    # Rule-based fallback — no AI call here (prevents rate-limit crash)
+                    explanation = (
+                        f"Recent disruptions in {data['location']} involving "
+                        f"{data['event_type']} have increased risk due to repeated "
+                        f"occurrences and supply chain dependency concentration."
+                    )
+                    why = None
+                    how = None
+                    strategic_brief = None
 
-                db.add(Prediction(
+                record = Prediction(
                     event_type=data["event_type"],
                     location=data["location"],
                     probability=round(probability, 3),
@@ -190,14 +262,52 @@ class PredictionService:
                     explanation=explanation,
                     why=why,
                     how=how,
-                    strategic_brief=strategic_brief
-                ))
-            
+                    strategic_brief=strategic_brief,
+                )
+                db.add(record)
+                new_records.append((key, record, data, risk_level))
+
+            # ── Single commit for all records ────────────────────────────────
             await db.commit()
+            logger.info(
+                "Predictions updated: %d unique clusters → %d predictions stored.",
+                len(topology_weights), len(new_records)
+            )
+
+            # ── Background: Enrich top-5 new predictions asynchronously ──────
+            # Only enrich predictions that don't already have cached narration
+            # so we don't burn through API quotas on ones already enriched.
+            asyncio.create_task(self._enrich_top_predictions(new_records, db))
 
         except Exception as e:
             logger.error("Failed to update predictions: %s", str(e))
             await db.rollback()
+
+    async def _enrich_top_predictions(self, records: list, db: AsyncSession) -> None:
+        """
+        Background task: enriches up to 5 predictions that lack why/how narratives.
+        Runs after the initial commit so a failure here never corrupts saved predictions.
+        """
+        from app.schemas.prediction import PredictionEnrichmentRequest
+        enriched = 0
+        for key, record, data, risk_level in records:
+            if enriched >= 15:
+                break
+            if record.why:  # already has narration
+                continue
+            try:
+                enrich_req = PredictionEnrichmentRequest(
+                    event_type=data["event_type"],
+                    location=data["location"],
+                    risk_level=risk_level,
+                )
+                enrich_res = await self.enrich_prediction_intelligence(enrich_req, db)
+                # enrich_prediction_intelligence already persists the record if valid
+                enriched += 1
+                await asyncio.sleep(1)  # gentle pacing
+            except Exception as e_bg:
+                logger.warning("Background enrichment skipped for %s/%s: %s",
+                               data["event_type"], data["location"], e_bg)
 
     async def get_latest_predictions(self, db: AsyncSession) -> List[PredictionItem]:
         """

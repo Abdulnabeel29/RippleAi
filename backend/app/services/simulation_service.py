@@ -143,6 +143,7 @@ class SimulationService:
             impacts.append({
                 "target": entity_name,
                 "impact": combined_score,
+                "impact_score": combined_score,
                 "depth": primary_depth,
                 "facility_type": "Factory", # Graph nodes in Phase 1 are typically industries/factories
                 "primary_metric": "Logistics: At Risk",
@@ -320,6 +321,7 @@ class SimulationService:
                 "facility_type": f_type,
                 "primary_metric": f"Scanning {f_type} state...",
                 "impact": round(random.uniform(0.3, 0.95), 2),
+                "impact_score": round(random.uniform(0.3, 0.95), 2),
                 "risk_vector": p['Why'],
                 "operational_impact": p['How'],
                 "delay_days": round(random.uniform(2.0, 10.0), 1),

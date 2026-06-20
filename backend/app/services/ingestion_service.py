@@ -115,33 +115,8 @@ async def run_ingestion_pipeline(db: AsyncSession) -> dict[str, Any]:
                     event_data.severity,
                 )
 
-                # --- NEW: ENRICH ON CREATION ---
-                try:
-                    logger.info("Enriching event %s with Decision Intelligence...", event.id)
-                    await rag_service.generate_decision_intelligence(
-                        event_type=event.event_type,
-                        location=event.location,
-                        severity=event.severity,
-                        event_summary=event.summary,
-                        db=db
-                    )
-                    
-                    # Also pre-generate Ripple Simulation Results
-                    logger.info("Enriching event %s with Ripple Simulation Results...", event.id)
-                    import json
-                    sim_results = await simulation_service.simulate_impact(
-                        event_id=event.id,
-                        event_type=event.event_type,
-                        location=event.location,
-                        industry=event.industry,
-                        event_summary=event.summary
-                    )
-                    event.simulation_results = json.dumps(sim_results)
-                    
-                    # 2s delay to avoid Gemini rate limits
-                    await asyncio.sleep(2)
-                except Exception as enrich_err:
-                    logger.warning("Enrichment failed for event %s (will retry on demand): %s", event.id, enrich_err)
+                # Removed synchronous AI enrichment to avoid ingestion timeout.
+                # Enrichment is handled lazily via /events/{event_id}/decision and /events/{event_id}/simulation.
                 # ------------------------------
             else:
                 logger.debug(

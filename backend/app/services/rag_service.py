@@ -172,12 +172,6 @@ class RAGService:
             
             context_text = "\n\n".join(context_docs) if context_docs else "No recent related news articles found."
 
-            # Step 2: Prompt LLM
-            from app.core.config import get_settings
-            local_settings = get_settings()
-            genai.configure(api_key=local_settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel(local_settings.GEMINI_MODEL)
-            
             prompt = f"""
             Explain why this disruption is likely:
 
@@ -194,8 +188,32 @@ class RAGService:
             Focus on the reasoning connecting the data points, not just summarizing them.
             """
 
-            response = await model.generate_content_async(prompt)
-            explanation = (response.text or "").strip()
+            async def try_gemini():
+                from app.core.config import get_settings
+                local_settings = get_settings()
+                genai.configure(api_key=local_settings.GEMINI_API_KEY)
+                model = genai.GenerativeModel(local_settings.GEMINI_MODEL)
+                response = await model.generate_content_async(prompt)
+                return (response.text or "").strip()
+
+            async def try_groq():
+                from app.core.config import get_settings
+                from groq import AsyncGroq
+                local_settings = get_settings()
+                if not local_settings.GROQ_API_KEY:
+                    raise Exception("No Groq API Key")
+                client = AsyncGroq(api_key=local_settings.GROQ_API_KEY)
+                chat_completion = await client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=local_settings.GROQ_MODEL,
+                )
+                return (chat_completion.choices[0].message.content or "").strip()
+
+            try:
+                explanation = await try_gemini()
+            except Exception as e_gemini:
+                logger.warning(f"RAG Explanation Gemini failed: {e_gemini}. Falling back to Groq...")
+                explanation = await try_groq()
             
             # Basic cleaning if LLM returns markdown fences
             if explanation.startswith("```"):

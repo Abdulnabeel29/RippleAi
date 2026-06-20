@@ -264,17 +264,11 @@ def test4_graph(base_url: str | None) -> dict:
     import urllib.request
     import urllib.error
 
-    conn = sqlite3.connect("supply_chain.db")
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT id FROM events
-        ORDER BY detected_at ASC
-        LIMIT 3
-        """
-    )
-    ids = [row[0] for row in cur.fetchall()]
-    conn.close()
+    req = urllib.request.Request(f"{base_url.rstrip('/')}/events?limit=3")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        body = json.loads(resp.read().decode())
+    events = (body.get("data") or {}).get("events") or []
+    ids = [e["id"] for e in events]
 
     if len(ids) < 3:
         return {"pass": False, "issues": [f"need 3 events, have {len(ids)}"]}

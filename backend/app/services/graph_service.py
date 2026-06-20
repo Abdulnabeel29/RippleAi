@@ -136,7 +136,7 @@ class GraphService:
                 async with self.driver.session() as session:
                     await session.run(
                         query,
-                        event_id=event_id,
+                        event_id=str(event_id),
                         industry=industry,
                         location=location,
                         severity=severity,
@@ -187,7 +187,7 @@ class GraphService:
         """
         try:
             async with self.driver.session() as session:
-                result = await session.run(query, event_id=event_id)
+                result = await session.run(query, event_id=str(event_id))
                 records = await result.data()
 
                 for record in records:

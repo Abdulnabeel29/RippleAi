@@ -78,16 +78,17 @@ class BackendValidator:
                             logger.info("Ingestion completed but no new events detected. Checking database for existing events...")
                         
                         # Get a test event ID (either new or existing)
-                        conn = sqlite3.connect('supply_chain.db')
-                        c = conn.cursor()
-                        c.execute("SELECT id FROM events ORDER BY detected_at DESC LIMIT 1")
-                        row = c.fetchone()
-                        if row:
-                            self.test_event_id = row[0]
-                            self.results["event_detection"] = "pass" # If we have events at all, detection worked in the past
-                        else:
-                            self.results["issues_found"].append("No events found in database after ingestion.")
-                        conn.close()
+                        try:
+                            ev_res = await client.get(f"{self.base_url}/events?limit=1")
+                            if ev_res.status_code == 200:
+                                ev_data = ev_res.json()
+                                if ev_data.get("data", {}).get("events"):
+                                    self.test_event_id = ev_data["data"]["events"][0]["id"]
+                                    self.results["event_detection"] = "pass"
+                                else:
+                                    self.results["issues_found"].append("No events found from API.")
+                        except Exception as e:
+                            self.results["issues_found"].append(f"Failed to fetch events from API: {e}")
                     else:
                         logger.warning("Ingestion failed according to response body.")
                         self.results["issues_found"].append("Ingestion response marked as failure.")
