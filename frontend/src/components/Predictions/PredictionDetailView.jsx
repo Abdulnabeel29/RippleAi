@@ -319,7 +319,7 @@ const PredictionDetailView = ({ prediction, onClose }) => {
           </div>
           <button 
             onClick={onClose}
-            className="group flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] px-8 py-3.5 rounded-lg bg-white text-[#05080f] hover:bg-primary hover:text-white transition-all active:scale-95 shadow-xl"
+            className="group flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] px-8 py-3.5 rounded-lg bg-white/90 text-[#05080f] hover:bg-white hover:shadow-[0_0_25px_rgba(255,255,255,0.2)] transition-all active:scale-95"
           >
             Acknowledge Matrix <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
           </button>

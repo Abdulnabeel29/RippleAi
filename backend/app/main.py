@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import create_tables
 from app.core.logging import setup_logging
-from app.routes import events, health, ingestion, predictions
+from app.routes import events, health, ingestion, predictions, brief
 from app.services.graph_service import graph_service
 from app.services.scheduler_service import start_scheduler, stop_scheduler
 
@@ -77,3 +77,4 @@ app.include_router(health.router)
 app.include_router(ingestion.router)
 app.include_router(events.router)
 app.include_router(predictions.router)
+app.include_router(brief.router)

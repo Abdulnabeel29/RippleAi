@@ -84,7 +84,7 @@ const DashboardPage = () => {
                     />
                     {/* Floating redirect button for Map */}
                     <div className="absolute top-4 right-4 z-20">
-                        <Link to="/map" className="bg-[#151c25]/80 backdrop-blur-md border border-white/10 px-4 py-2 rounded-sm text-[11px] font-bold text-white uppercase tracking-widest hover:bg-primary hover:text-black transition-all shadow-xl flex items-center gap-2 group">
+                        <Link to="/map" className="bg-[#151c25]/80 backdrop-blur-md border border-white/10 px-4 py-2 rounded-sm text-[11px] font-bold text-white uppercase tracking-widest hover:bg-white/[0.12] hover:border-white/20 transition-all shadow-xl flex items-center gap-2 group">
                             <span className="material-symbols-outlined text-sm">fullscreen</span>
                             Fullscreen Map
                         </Link>

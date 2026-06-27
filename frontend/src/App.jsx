@@ -7,6 +7,7 @@ import NetworkGraphPage from './pages/NetworkGraphPage';
 import RiskAnalyticsPage from './pages/RiskAnalyticsPage';
 import PredictionsPage from './pages/PredictionsPage';
 import { useIntelligenceData } from './hooks/useData';
+import IntelligenceBrief from './components/Brief/IntelligenceBrief';
 
 import { LayoutDashboard, Map, Activity, BarChart3, Settings, FileText, Globe, ShieldAlert, Waves, Menu, BrainCircuit } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -14,6 +15,7 @@ import { motion } from 'framer-motion';
 function App() {
   const { events } = useIntelligenceData();
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
+  const [isBriefOpen, setIsBriefOpen] = React.useState(false);
 
   const sidebar = (
     <div className={`flex flex-col h-full overflow-hidden ${isSidebarOpen ? 'px-6' : 'px-2'}`}>
@@ -89,7 +91,10 @@ function App() {
             <motion.span initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="text-sm font-bold tracking-tight">System Configuration</motion.span>
           )}
         </a>
-        <button className={`w-full mt-4 bg-white text-[#05080f] font-black ${isSidebarOpen ? 'py-3.5 px-4' : 'py-3.5 px-0 justify-center'} rounded-lg text-[10px] uppercase tracking-[0.2em] hover:bg-primary hover:text-white active:scale-95 transition-all shadow-[0_10px_30px_rgba(255,255,255,0.1)] flex items-center gap-2 border border-white/10 group overflow-hidden`}>
+        <button 
+          onClick={() => setIsBriefOpen(true)}
+          className={`w-full mt-4 bg-white/90 text-[#05080f] font-black ${isSidebarOpen ? 'py-3.5 px-4' : 'py-3.5 px-0 justify-center'} rounded-lg text-[10px] uppercase tracking-[0.2em] hover:bg-white hover:shadow-[0_0_25px_rgba(255,255,255,0.2)] active:scale-95 transition-all flex items-center gap-2 border border-white/20 group overflow-hidden`}
+        >
             <FileText size={18} className="group-hover:scale-110 transition-transform shrink-0" />
             {isSidebarOpen && (
               <motion.span initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>Generate Brief</motion.span>
@@ -108,6 +113,7 @@ function App() {
         <Route path="/predictions" element={<PredictionsPage />} />
         <Route path="/analytics" element={<RiskAnalyticsPage />} />
       </Routes>
+      <IntelligenceBrief isOpen={isBriefOpen} onClose={() => setIsBriefOpen(false)} />
     </DashboardLayout>
   );
 }

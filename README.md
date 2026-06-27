@@ -111,30 +111,66 @@ VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 
 ---
 
-## 🛠️ Execution & Commands
+## 🛠️ First-Time Setup & Execution
 
-Follow these steps to spin up the services locally.
+To run this project completely end-to-end with all features (Database, Graph, Vector Embeddings, and Web Apps) working locally, follow this chronological guide.
 
-### 1. Start the Backend Server
+### 1. Start Infrastructure (Neo4j)
+
+The predictive simulation requires a Neo4j graph database. You can quickly spin one up using Docker:
+
+```bash
+# Run Neo4j container locally on port 7687
+docker run \
+    --name ripple-neo4j \
+    -p 7474:7474 -p 7687:7687 \
+    -d \
+    -e NEO4J_AUTH=neo4j/password \
+    neo4j:latest
+```
+
+### 2. Initialize Database & Backfill Data (Backend)
+
+Before starting the server, you need to initialize the database and populate it with initial data, graph nodes, and embeddings.
 
 ```bash
 # 1. Navigate to the backend folder
 cd backend
 
-# 2. Create a virtual environment (optional but recommended)
+# 2. Create and activate virtual environment
 python -m venv .venv
-source .venv/bin/activate  # On Windows, run: .venv\Scripts\activate
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # 3. Install Python dependencies
 pip install -r requirements.txt
 
-# 4. Run the FastAPI development server
+# 4. Initialize Database & Tables
+python reset_supabase.py
+
+# 5. Seed initial supply chain events
+python seed_real_events.py
+
+# 6. Sync events into the Neo4j Graph
+python backfill_graph.py
+
+# 7. Generate Vector Embeddings (for RAG features)
+python backfill_embeddings.py
+```
+
+### 3. Start the Backend Server
+
+While still in the `backend` directory with your virtual environment activated:
+
+```bash
+# Run the FastAPI development server
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 - The backend API will be available at: `http://127.0.0.1:8000`
 - Interactively explore API docs at: `http://127.0.0.1:8000/docs`
 
-### 2. Start the Frontend Application
+### 4. Start the Frontend Application
+
+Open a new terminal window/tab:
 
 ```bash
 # 1. Navigate to the frontend folder
@@ -144,41 +180,9 @@ cd frontend
 npm install
 
 # 3. Start the Vite dev server
-npm run dev
+npm run dev 
 ```
 - The frontend dashboard will run at: `http://localhost:5173` (by default, configured to proxy `/api` calls to the local backend).
-
----
-
-## 🗄️ Database & Graph Pipelines (Backfills)
-
-Use these utility scripts to run and backfill data components:
-
-- **Initialize / Reset Database Structure**
-  ```bash
-  # Drops all existing tables and re-initializes Postgres/Supabase schemas
-  python reset_supabase.py
-  ```
-- **Seed Initial Events**
-  ```bash
-  # Seeds SQLite/Postgres with mock historical events to run predictions
-  python seed_real_events.py
-  ```
-- **Sync DB Events to Neo4j Graph**
-  ```bash
-  # Idempotently inserts/updates Neo4j graph with SQL DB records
-  python backfill_graph.py
-  ```
-- **Backfill News Article Vector Embeddings**
-  ```bash
-  # Generates local Sentence Transformers embeddings for search & RAG
-  python backfill_embeddings.py
-  ```
-- **Re-classify Ambiguous Events**
-  ```bash
-  # Iterates through "unknown" events and uses Gemini to re-detect details
-  python backfill_unknown_events.py
-  ```
 
 ---
 

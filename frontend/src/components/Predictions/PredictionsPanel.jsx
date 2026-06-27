@@ -183,7 +183,7 @@ const PredictionsPanel = ({ predictions }) => {
                        e.stopPropagation();
                        setSelectedPrediction(pred);
                      }}
-                     className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-lg text-[10px] font-black text-white uppercase tracking-widest hover:bg-primary transition-all duration-300 border border-white/5 shadow-lg group/btn"
+                     className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-lg text-[10px] font-black text-white uppercase tracking-widest hover:bg-white/[0.12] hover:border-white/20 hover:text-white transition-all duration-300 border border-white/10 shadow-lg group/btn"
                    >
                      Strategic Brief <ChevronRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
                    </button>

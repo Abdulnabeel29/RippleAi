@@ -204,25 +204,19 @@ class PredictionService:
                 reverse=True
             )
 
-            # ── Load existing predictions to preserve cached AI narration ────
+            # ── Load existing predictions for upsert & decay ─────────────────
             existing_results = await db.execute(select(Prediction))
             existing_predictions = existing_results.scalars().all()
-            cache_map: dict = {}
+            
+            # Map by (normalized_event_type, location) -> Prediction ORM object
+            prediction_map: dict = {}
             for p in existing_predictions:
                 ckey = (_normalize_type(p.event_type), p.location.lower().strip())
-                cache_map[ckey] = {
-                    "explanation": p.explanation,
-                    "why": p.why,
-                    "how": p.how,
-                    "strategic_brief": getattr(p, "strategic_brief", None),
-                }
+                prediction_map[ckey] = p
 
-            # ── Wipe old predictions AFTER we have our plan ──────────────────
-            await db.execute(delete(Prediction))
-            await db.flush()  # don't commit yet — keep this in the same transaction
-
-            # ── Insert new predictions WITHOUT blocking AI enrichment ────────
             new_records: list = []
+            
+            # ── Process currently active events (Upsert) ─────────────────────
             for key, data in sorted_pairs:
                 probability = 1.0 - (1.0 / (1.0 + data["weight_sum"]))
 
@@ -236,38 +230,56 @@ class PredictionService:
                 base_delay = _get_base_delay(data["event_type"])
                 expected_delay_days = max(1, int(base_delay * probability) + 1)
 
-                cached = cache_map.get(key)
-                if cached and cached.get("explanation"):
-                    explanation = cached["explanation"]
-                    why = cached["why"]
-                    how = cached["how"]
-                    strategic_brief = cached.get("strategic_brief")
+                existing_p = prediction_map.pop(key, None)
+                
+                if existing_p:
+                    # Update existing record
+                    existing_p.probability = round(probability, 3)
+                    existing_p.expected_delay_days = expected_delay_days
+                    existing_p.risk_level = risk_level
+                    new_records.append((key, existing_p, data, risk_level))
                 else:
-                    # Rule-based fallback — no AI call here (prevents rate-limit crash)
+                    # Create new record
                     explanation = (
                         f"Recent disruptions in {data['location']} involving "
                         f"{data['event_type']} have increased risk due to repeated "
                         f"occurrences and supply chain dependency concentration."
                     )
-                    why = None
-                    how = None
-                    strategic_brief = None
+                    record = Prediction(
+                        event_type=data["event_type"],
+                        location=data["location"],
+                        probability=round(probability, 3),
+                        expected_delay_days=expected_delay_days,
+                        risk_level=risk_level,
+                        explanation=explanation,
+                        why=None,
+                        how=None,
+                        strategic_brief=None,
+                    )
+                    db.add(record)
+                    new_records.append((key, record, data, risk_level))
 
-                record = Prediction(
-                    event_type=data["event_type"],
-                    location=data["location"],
-                    probability=round(probability, 3),
-                    expected_delay_days=expected_delay_days,
-                    risk_level=risk_level,
-                    explanation=explanation,
-                    why=why,
-                    how=how,
-                    strategic_brief=strategic_brief,
-                )
-                db.add(record)
-                new_records.append((key, record, data, risk_level))
+            # ── Decay old predictions (no longer in 30-day window) ───────────
+            for p in prediction_map.values():
+                # Decay probability by 10% each time the scheduler runs
+                new_prob = p.probability * 0.90
+                
+                if new_prob < 0.05:
+                    # If it drops below 5%, we finally remove it to keep DB clean
+                    await db.delete(p)
+                    continue
+                    
+                p.probability = round(new_prob, 3)
+                
+                # Update risk level based on new probability
+                if p.probability >= 0.7:
+                    p.risk_level = "High"
+                elif p.probability >= 0.4:
+                    p.risk_level = "Medium"
+                else:
+                    p.risk_level = "Low"
 
-            # ── Single commit for all records ────────────────────────────────
+            # ── Single commit for all records (Updates, Inserts, Deletes) ────
             await db.commit()
             logger.info(
                 "Predictions updated: %d unique clusters → %d predictions stored.",

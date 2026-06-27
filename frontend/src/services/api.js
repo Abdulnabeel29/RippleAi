@@ -125,3 +125,14 @@ export const fetchPredictionBrief = async (prediction) => {
   const result = await response.json();
   return result;
 };
+
+export const generateBrief = async (timeRange = 'week') => {
+  const response = await fetch(`${BASE_URL}/brief/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ time_range: timeRange }),
+  });
+  if (!response.ok) throw new Error('Failed to generate intelligence brief');
+  const result = await response.json();
+  return result.data;
+};
